@@ -50,7 +50,7 @@ ap_set_module_config(c->conn_config, &tor_module, val)
 typedef struct {
     int isAuthenticated;
     server_rec *server;
-	apr_socket_t *apache2_to_tor_sock = NULL;
+	apr_socket_t *apache2_to_tor_sock;
 } TorConnRec;
 
 
@@ -65,6 +65,31 @@ typedef struct {
 static modtor_config *s_cfg = NULL;
 
 
+
+
+
+
+/*
+ * Cleanup/close apache to Tor socket on shutdown
+ */
+
+static apr_status_t close_tor_socket(void *sock_to_close)
+{
+	apr_socket_t * sock = (apr_socket_t*) sock_to_close;
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+        "mod_tor: Closing Tor Socket");
+	fflush(stderr);
+
+
+
+	if(sock){
+		apr_socket_close(sock);
+	}
+
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+        "mod_tor: Closed Tor Socket");
+    return APR_SUCCESS;
+}
 
 
 
@@ -88,6 +113,8 @@ static TorConnRec *tor_init_connection_ctx(conn_rec *c)
 
     torconn->server = c->base_server;
 
+    torconn->apache2_to_tor_sock = NULL;
+
     myTorConnConfigSet(c, torconn);
 
     return torconn;
@@ -106,14 +133,14 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
 								s_cfg->mod_tor_port, 0, c->pool)) != APR_SUCCESS) {
 			ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
 					"mod_tor: Init: Failed to get local socket address");
-			return NULL;
+			return -1;//replace with actual err# later
 		}
 
 		if ((rv = apr_socket_create(&(torconn->apache2_to_tor_sock), localsa->family,
 								  SOCK_STREAM, 0, c->pool)) != APR_SUCCESS) {
 			ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
 					"mod_tor: Init: Failed to create socket to tor.");
-			return NULL;
+			return -1;//replace with actual err# later
 		}
 
 		/*//Set up socket options if we need to...
@@ -132,7 +159,7 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
 			ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
 					"mod_tor: Init: Failed to set keep alive", (int)s_cfg->mod_tor_port);
 		  apr_socket_close(torconn->apache2_to_tor_sock);
-		  return NULL;
+		  return -1;//replace with actual err# later
 		}
 
 		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
@@ -145,7 +172,7 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
 			ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
 					"mod_tor: Init: Failed to connect to tor socket at port %d", (int)s_cfg->mod_tor_port);
 		  apr_socket_close(torconn->apache2_to_tor_sock);
-		  return !OK;
+		  return -1;//replace with actual err# later
 		}
 
 		/*
@@ -242,8 +269,6 @@ static int tor_handler(request_rec *r) {
 	return DECLINED;
   }
 
-
-
   if (r->method_number != M_GET) {
 	  // Wasn't a GET request, no need to look at it
 	 return DECLINED;
@@ -273,13 +298,17 @@ static int tor_handler(request_rec *r) {
 	  ap_rputs("<br/>\nYou have <b>ALREADY</b> been authenticated.", r);
   }
   else if(torconn){
-	  torconn->isAuthenticated = 1;
-	  ap_rputs("<br/>\nYou have been authenticated.", r);
-	  //Build socket to tor for this connection
-	  tor_init_connection_tor_socket(r->connection,torrconn);
+		  //Build socket to tor for this connection
+	  if(APR_SUCCESS == tor_init_connection_tor_socket(r->connection,torconn)){
+		  torconn->isAuthenticated = 1;
+		  ap_rputs("<br/>\nYou have been authenticated.", r);
+	  }
+	  else{
+		  //ERROR
+		  ap_rputs("<br/>\nError Socket Couldn't connect to Tor process.", r);
+	  }
   }
   else{
-		  //Remove this so it fails silently later/probably decline above.
 	  ap_rputs("<br/>\ntorconn does not exist for some reason...", r);
   }
 
@@ -303,27 +332,6 @@ static int tor_handler(request_rec *r) {
 
 
 
-/*
- * Cleanup/close apache to Tor socket on shutdown
- */
-
-static apr_status_t close_tor_socket(void *sock_to_close)
-{
-	apr_socket_t * sock = (apr_socket_t*) sock_to_close;
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-        "mod_tor: Closing Tor Socket");
-	fflush(stderr);
-
-
-
-	if(sock){
-		apr_socket_close(sock);
-	}
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-        "mod_tor: Closed Tor Socket");
-    return APR_SUCCESS;
-}
 
 
 
