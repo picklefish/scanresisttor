@@ -30,7 +30,6 @@ module AP_MODULE_DECLARE_DATA tor_module;
 typedef struct {
 	char *mod_tor_password;
 	apr_port_t mod_tor_port;
-	apr_socket_t *apache2_to_tor_sock = NULL;
 } modtor_config;
 
 
@@ -42,9 +41,16 @@ typedef struct {
 #define myTorConnConfigSet(c, val) \
 ap_set_module_config(c->conn_config, &tor_module, val)
 
+
+/*
+ * apache2_to_tor_sock -
+ * The socket which connects tor and apache on the local machine
+ * It is a client socket for apache. Setup in init and closed on pool cleanup.
+ */
 typedef struct {
     int isAuthenticated;
     server_rec *server;
+	apr_socket_t *apache2_to_tor_sock = NULL;
 } TorConnRec;
 
 
@@ -55,12 +61,7 @@ typedef struct {
 
 
 
-/*
- * The socket which connects tor and apache on the local machine
- * It is a client socket for apache. Setup in init and closed on pool cleanup.
- * Moved to inside config... per connection
- */
-//static apr_socket_t *apache2_to_tor_sock = NULL;
+
 static modtor_config *s_cfg = NULL;
 
 
@@ -94,7 +95,67 @@ static TorConnRec *tor_init_connection_ctx(conn_rec *c)
 
 
 
+static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
+	   /*
+		* Set up the socket between apache and Tor
+		*/
 
+		apr_status_t rv, err;
+		apr_sockaddr_t *localsa;
+		if ((rv = apr_sockaddr_info_get(&localsa, "localhost", APR_UNSPEC,
+								s_cfg->mod_tor_port, 0, c->pool)) != APR_SUCCESS) {
+			ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
+					"mod_tor: Init: Failed to get local socket address");
+			return NULL;
+		}
+
+		if ((rv = apr_socket_create(&(torconn->apache2_to_tor_sock), localsa->family,
+								  SOCK_STREAM, 0, c->pool)) != APR_SUCCESS) {
+			ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
+					"mod_tor: Init: Failed to create socket to tor.");
+			return NULL;
+		}
+
+		/*//Set up socket options if we need to...
+
+		if ((rv = apr_socket_timeout_set(apache2_to_tor_sock, 30)) != APR_SUCCESS) {
+		  apr_socket_close(sock);
+		  return OK;
+		}
+		rv = apr_socket_opt_set(apache2_to_tor_sock, APR_SO_RCVBUF, 256);
+		rv = apr_socket_opt_set(apache2_to_tor_sock, APR_TCP_NODELAY, 1);
+		rv = apr_socket_opt_set(apache2_to_tor_sock, APR_SO_NONBLOCK, 1);
+		*/
+
+		rv = apr_socket_opt_set(torconn->apache2_to_tor_sock, APR_SO_KEEPALIVE, 1);
+		if ( rv != APR_SUCCESS) {
+			ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
+					"mod_tor: Init: Failed to set keep alive", (int)s_cfg->mod_tor_port);
+		  apr_socket_close(torconn->apache2_to_tor_sock);
+		  return NULL;
+		}
+
+		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
+				"mod_tor: Before Connect %d", (int)s_cfg->mod_tor_port);
+		rv = apr_socket_connect(torconn->apache2_to_tor_sock, localsa);
+		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
+				"mod_tor: After Connect %d", (int)s_cfg->mod_tor_port);
+
+		if ( rv != APR_SUCCESS) {
+			ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
+					"mod_tor: Init: Failed to connect to tor socket at port %d", (int)s_cfg->mod_tor_port);
+		  apr_socket_close(torconn->apache2_to_tor_sock);
+		  return !OK;
+		}
+
+		/*
+		 * Register a cleanup to close the socket.
+		 * XXX:Make sure I'm cleaning up correctly with apache2_to_tor_sock
+		 */
+		apr_pool_cleanup_register(c->pool, torconn->apache2_to_tor_sock,
+									close_tor_socket, apr_pool_cleanup_null);
+		return APR_SUCCESS;
+}
 
 
 
@@ -109,15 +170,6 @@ static int tor_hook_pre_connection(conn_rec *c, void *csd)
     if (!torconn) {
     	torconn = tor_init_connection_ctx(c);
     }
-
-
-    /*
-     * Remember the connection information for
-     * later access inside callback functions
-     */
-
-    ap_log_cerror(APLOG_MARK, APLOG_INFO, 0, c,
-                  "Connection to child %ld established ", c->id);
 
     return APR_SUCCESS;//tor_init_tor_connection(c);
 }
@@ -223,8 +275,11 @@ static int tor_handler(request_rec *r) {
   else if(torconn){
 	  torconn->isAuthenticated = 1;
 	  ap_rputs("<br/>\nYou have been authenticated.", r);
+	  //Build socket to tor for this connection
+	  tor_init_connection_tor_socket(r->connection,torrconn);
   }
   else{
+		  //Remove this so it fails silently later/probably decline above.
 	  ap_rputs("<br/>\ntorconn does not exist for some reason...", r);
   }
 
@@ -289,63 +344,6 @@ tor_init(apr_pool_t * config_pool, apr_pool_t * plog, apr_pool_t * ptemp,
 	// Get the modules configuration
 	s_cfg = ap_get_module_config(main_server->module_config, &tor_module);
 	//Do I need to clean this up?
-
-	/*
-	* Set up the socket between apache and Tor
-	*/
-
-	apr_status_t rv, err;
-	apr_sockaddr_t *localsa;
-	if ((rv = apr_sockaddr_info_get(&localsa, "localhost", APR_UNSPEC,
-							s_cfg->mod_tor_port, 0, p)) != APR_SUCCESS) {
-		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, main_server,
-		        "mod_tor: Init: Failed to get local socket address");
-		return !OK;
-	}
-
-	if ((rv = apr_socket_create(&apache2_to_tor_sock, localsa->family,
-							  SOCK_STREAM, 0, p)) != APR_SUCCESS) {
-		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, main_server,
-		        "mod_tor: Init: Failed to create socket to tor.");
-		return !OK;
-	}
-
-	/*//Set up socket options if we need to...
-
-	if ((rv = apr_socket_timeout_set(apache2_to_tor_sock, 30)) != APR_SUCCESS) {
-	  apr_socket_close(sock);
-	  return OK;
-	}
-	rv = apr_socket_opt_set(apache2_to_tor_sock, APR_SO_RCVBUF, 256);
-	rv = apr_socket_opt_set(apache2_to_tor_sock, APR_TCP_NODELAY, 1);
-	rv = apr_socket_opt_set(apache2_to_tor_sock, APR_SO_NONBLOCK, 1);
-	*/
-
-	rv = apr_socket_opt_set(apache2_to_tor_sock, APR_SO_KEEPALIVE, 1);
-	if ( rv != APR_SUCCESS) {
-		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, main_server,
-		        "mod_tor: Init: Failed to set keep alive", (int)s_cfg->mod_tor_port);
-	  apr_socket_close(apache2_to_tor_sock);
-	  return !OK;
-	}
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, main_server,
-	        "mod_tor: Before Connect %d", (int)s_cfg->mod_tor_port);
-	rv = apr_socket_connect(apache2_to_tor_sock, localsa);
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, main_server,
-	        "mod_tor: After Connect %d", (int)s_cfg->mod_tor_port);
-
-	if ( rv != APR_SUCCESS) {
-		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, main_server,
-		        "mod_tor: Init: Failed to connect to tor socket at port %d", (int)s_cfg->mod_tor_port);
-	  apr_socket_close(apache2_to_tor_sock);
-	  return !OK;
-	}
-
-	/*
-	 * Register a cleanup to close the socket.
-	 */
-	apr_pool_cleanup_register(config_pool, NULL, close_tor_socket, apr_pool_cleanup_null);
 
 	return OK;
 
