@@ -58,10 +58,19 @@ Shane Pope
 
 2.4 Benefits
 
+    - Completely hides initial Tor handshake
     - No window of time to be scanned at all.
 
 
-3.  Protocol 2 (Much easier to implement)
+
+
+
+
+
+
+
+
+3.  Protocol 2 (Much easier to implement, not working on due to problems with it)
 
     Tor runs it's OR port on a high numbered port. Tor stops accepting connections.
     Apache accepts a bridge-specific password over https. Apache then sends a
@@ -95,4 +104,9 @@ Shane Pope
 
     - Possibly easier to port to other webservers.
     - Much easier to implement
+    - Small window of time in which Tor can be detected.
 
+3.5 Problems with design
+
+    - Does not hide inital Tor handshake
+    - Tor can still be detected, via port scan, in a small timeframe
