@@ -6,12 +6,12 @@ Shane Pope
 
 0.1 Definitions, Notation and encoding
 
-    OR Port - The port running the OR protocol on the server.
-    Tor bridge - A relay running Tor
-    Bug-compatible - Any inputs into an altered system will respond with the
+    OR Port -- The port running the OR protocol on the server.
+    Tor bridge -- A relay running Tor
+    Bug-compatible -- Any inputs into an altered system will respond with the
       exact same response the unaltered system would respond with. Unless a
       secret is known.
-    Bridge-specific password - A password set by the bridge operator. This
+    Bridge-specific password -- A password set by the bridge operator. This
       password will be sent as a query string from a Tor client to the webserver.
       Example: GET /tor/?passwordGoesHere
 
@@ -34,27 +34,31 @@ Shane Pope
     proxying all data to and from the local Tor server.
 
 2.1 Required Changes to Tor Client
-    -Client needs a flag when given a bridge to know to treat the bridge as normal
-       or scanning resistant (Easy)
-    -Client must follow the same TLS protocol that Apache runs, and send the
-       bridge-specific password after connecting.
-    -Client must then be changed to send all data under this SSL connection
-       instead of the normal Tor SSL protocol.
+
+    - Client needs a flag when given a bridge to know to treat the bridge as normal
+      or scanning resistant (Easy)
+    - Client must follow the same TLS protocol that Apache runs, and send the
+      bridge-specific password after connecting.
+    - Client must then be changed to send all data under this SSL connection
+      instead of the normal Tor SSL protocol.
 
 2.2 Required features of the Apache module
-    -Authenticate the user if the correct password is sent, otherwise let Apache
-       handle the request. (DONE)
-    -Create a socket to local Tor bridge (DONE - Socket per connection)
-    -Pass all bits from authenticated client connection to Tor
-    -Pass all bits from local Tor back to authenticated client
+
+    - Authenticate the user if the correct password is sent, otherwise let Apache
+      handle the request. (DONE)
+    - Create a socket to local Tor bridge (DONE - Socket per connection)
+    - Pass all bits from authenticated client connection to Tor
+    - Pass all bits from local Tor back to authenticated client
 
 2.3 Required Changes to Tor Server
-    -Add directives to know if the server is a scanning resistant bridge or not. (Easy)
-    -Rewrite connection code to accept unencrypted OR connections (Eek)
-    -More?
+
+    - Add directives to know if the server is a scanning resistant bridge or not. (Easy)
+    - Rewrite connection code to accept unencrypted OR connections (Eek)
+    - More?
 
 2.4 Benefits
-    -No window of time to be scanned at all.
+
+    - No window of time to be scanned at all.
 
 
 3.  Protocol 2 (Much easier to implement)
@@ -66,25 +70,29 @@ Shane Pope
     scan between the window that the port accepts connections.
 
 3.1 Required Changes to Tor Client
-    -Client needs a flag when given a bridge to know to treat the bridge as normal
-       or scanning resistant (Easy)
-    -Client must follow the same TLS protocol that Apache runs, and send the
-       bridge-specific password after connecting.
+
+    - Client needs a flag when given a bridge to know to treat the bridge as normal
+      or scanning resistant (Easy)
+    - Client must follow the same TLS protocol that Apache runs, and send the
+      bridge-specific password after connecting.
 
 3.2 Required features of the Apache module
-    -Authenticate the user if the correct password is sent, otherwise let Apache
-       handle the request. (DONE)
-    -Connect to Tor's controller port and sending "open port" command to Tor.
+
+    - Authenticate the user if the correct password is sent, otherwise let Apache
+      handle the request. (DONE)
+    - Connect to Tor's controller port and sending "open port" command to Tor.
 
 3.3 Required Changes to Tor Server
-    -Add directives to know if the server is a scanning resistant bridge or not.
-    -Add code to disable accepting connections on the OR Port unless some flag is
-       true, and time out that flag to false.
-    -Add code to turn the flag above to false if the set of users who
-       authenticated through the webserver has connected.
-    -Set the above flag using the controller port.
+
+    - Add directives to know if the server is a scanning resistant bridge or not.
+    - Add code to disable accepting connections on the OR Port unless some flag is
+      true, and time out that flag to false.
+    - Add code to turn the flag above to false if the set of users who
+      authenticated through the webserver has connected.
+    - Set the above flag using the controller port.
 
 3.4 Benefits
-    -Possibly easier to port to other webservers.
-    -Much easier to implement
+
+    - Possibly easier to port to other webservers.
+    - Much easier to implement
 
