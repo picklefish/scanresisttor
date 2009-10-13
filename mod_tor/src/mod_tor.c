@@ -309,30 +309,33 @@ static int tor_handler(request_rec *r) {
 
   /* OK, we're happy with this request, so we'll return the response. */
 
-  ap_set_content_type(r, "text/html");
+  /*ap_set_content_type(r, "text/html");
   ap_rputs("Hello, you GET'd the password...", r);
   ap_rputs("<br/>\nMyPassword: ", r);
   ap_rputs(s_cfg->mod_tor_password, r);
   ap_rputs("<br/>\nYour GET'd password:", r);
-  ap_rputs(r->args, r);
+  ap_rputs(r->args, r);*/
 
   TorConnRec *torconn = myTorConnConfig(r->connection);
   if(torconn && torconn->isAuthenticated==1){
-	  ap_rputs("<br/>\nYou have <b>ALREADY</b> been authenticated.", r);
+	  //ap_rputs("<br/>\nYou have <b>ALREADY</b> been authenticated.", r);
+	  ap_set_content_type(r, "text/html");
+	  ap_rputs("already_authenticated", r);
   }
   else if(torconn){
 		  //Build socket to tor for this connection
 	  if(APR_SUCCESS == tor_init_connection_tor_socket(r->connection,torconn)){
 		  torconn->isAuthenticated = 1;
-		  ap_rputs("<br/>\nYou have been authenticated.", r);
+		  ap_set_content_type(r, "text/html");
+		  ap_rputs("authenticated", r);
 	  }
 	  else{
 		  //ERROR
-		  ap_rputs("<br/>\nError Socket Couldn't connect to Tor process.", r);
+		  //ap_rputs("<br/>\nError Socket Couldn't connect to Tor process.", r);
 	  }
   }
   else{
-	  ap_rputs("<br/>\ntorconn does not exist for some reason...", r);
+	  //ap_rputs("<br/>\ntorconn does not exist for some reason...", r);
   }
 
   /* we return OK to indicate that we have successfully processed
