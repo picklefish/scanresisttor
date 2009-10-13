@@ -162,10 +162,10 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
 		  return -1;//replace with actual err# later
 		}
 
-		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
+		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
 				"mod_tor: Before Connect %d", (int)s_cfg->mod_tor_port);
 		rv = apr_socket_connect(torconn->apache2_to_tor_sock, localsa);
-		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
+		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
 				"mod_tor: After Connect %d", (int)s_cfg->mod_tor_port);
 
 		if ( rv != APR_SUCCESS) {
@@ -219,6 +219,13 @@ static int tor_hook_pre_connection(conn_rec *c, void *csd)
 
 
 
+
+
+
+
+
+
+
 /*
  * right after the read request
  */
@@ -231,13 +238,17 @@ int tor_hook_ReadReq(request_rec *r)
             return DECLINED;
     }
 
+
+	/*
+	 Somehow get the data from the request
+	 TorConnRec *torconn = myTorConnConfig(r->connection);
+	 apr_socket_send(apache2_to_tor_sock, getReq, &len);*/
+
+
+
 		//This is where we would pass the data to Tor
     return OK;
 }
-
-
-
-
 
 
 
@@ -263,6 +274,18 @@ static int tor_handler(request_rec *r) {
     //r->handler wasn't "tor"
 	return DECLINED;
   }
+
+	  //handle the reply if the connection is authenticated.
+	  //yea this is probably SOOOO wrong. But I currently have no idea
+	  //how to do this
+  /*TorConnRec *torconn = myTorConnConfig(r->connection);
+  if(torconn && torconn->isAuthenticated ){
+		apr_size_t len = 1024;//i have no idea what this should be
+		char buf[len];
+		apr_socket_recv(apache2_to_tor_sock, &(buf[0]), &len);
+		ap_rwrite(buf, len, r);
+		return OK;
+  }*/
 
   if ((APR_RETRIEVE_OPTIONAL_FN(ssl_is_https))(r->connection) == 0){
 	//the connection isn't HTTPS
