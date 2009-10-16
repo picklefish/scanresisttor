@@ -17,8 +17,8 @@ Shane Pope
 1. System Overview
 
    An adversary who wants to identify a machine running Tor can try connecting to
-   ports on the machine and following Tor protocol. If any of the ports follow Tor
-   protocol back, we know they are running Tor. This system aims to prevent
+   ports on the machine and following Tor protocol. If any of the ports respond
+   following Tor protocol, we know they are running Tor. This system aims to prevent
    port-scanning tools from detecting Tor servers. To do this we attempt to hide
    the server behind an HTTPS webserver(Apache). Another goal is making the system
    usable enough that it will be easy to widely deploy.
@@ -33,16 +33,21 @@ Shane Pope
     bridge-specific password. If the bridge-specific password is sent, the
     connection begins proxying all data to and from the local Tor server.
 
-2.1 Required Changes to Tor Client
+2.1 Bridge-Specific Password
+
+    - Stub. Generated?
+
+2.2 Required Changes to Tor Client
 
     - Client needs a flag when given a bridge to know to treat the bridge as normal
       or scanning resistant (Easy)
-    - Client must follow the same TLS protocol that Apache runs, and send the
-      bridge-specific password after connecting.
+    - Client must use a web browser-identical TLS handshake.
+    - After creating the TLS connection the client must send the bridge-specific
+      password.
     - Client must then be changed to send all data under this SSL connection
       instead of the normal Tor SSL protocol.
 
-2.2 Required features of the Apache module
+2.3 Required features of the Apache module
 
     - Authenticate the user if the correct password is sent, otherwise let Apache
       handle the request. (DONE)
@@ -50,16 +55,20 @@ Shane Pope
     - Pass all bits from authenticated client connection to Tor
     - Pass all bits from local Tor back to authenticated client
 
-2.3 Required Changes to Tor Server
+2.4 Required Changes to Tor Server
 
     - Add directives to know if the server is a scanning resistant bridge or not. (Easy)
     - Rewrite connection code to accept unencrypted OR connections (Eek)
     - More?
 
-2.4 Benefits
+2.5 Benefits
 
     - Completely hides initial Tor handshake
     - No window of time to be scanned at all.
+
+
+
+
 
 
 
