@@ -1,4 +1,4 @@
-Tor Scanning Resistance
+Tor Port-Scanning Resistance
 
 Shane Pope
 
@@ -9,8 +9,7 @@ Shane Pope
     OR Port -- The port running the OR protocol on the server.
     Tor bridge -- A relay running Tor
     Bug-compatible -- Any inputs into an altered system will respond with the
-      exact same response the unaltered system would respond with. Unless a
-      secret is known.
+      exact same response the unaltered system would respond with.
     Bridge-specific password -- A password set by the bridge operator. This
       password will be sent as a query string from a Tor client to the webserver.
       Example: GET /tor/?passwordGoesHere
@@ -25,13 +24,14 @@ Shane Pope
    usable enough that it will be easy to widely deploy.
 
 
-2.  Protocol 1
+2.  Protocol
 
-    Tor runs on a local port, which cannot be connected to from the outside. Anyone
-    connecting to the webserver will get a bug-compatible response, and appear to
-    be a webserver, unless they know a bridge-specific password. If the
-    bridge-specific password is sent, the connection to that user switches to
-    proxying all data to and from the local Tor server.
+    Tor runs on a local port, which cannot be connected to from the outside. Apache
+    runs on the standard https port (and http, as an average webserver would).
+    Anyone connecting to the webserver will receive a bug-compatible response,
+    typically a 404 or the page at the url passed, unless they know a 
+    bridge-specific password. If the bridge-specific password is sent, the
+    connection begins proxying all data to and from the local Tor server.
 
 2.1 Required Changes to Tor Client
 
@@ -70,7 +70,7 @@ Shane Pope
 
 
 
-3.  Protocol 2 (Much easier to implement, not working on due to problems with it)
+3.  Another Protocol (Much easier to implement, not working on due to problems with it)
 
     Tor runs it's OR port on a high numbered port. Tor stops accepting connections.
     Apache accepts a bridge-specific password over https. Apache then sends a
