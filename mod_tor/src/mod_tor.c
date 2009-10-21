@@ -180,8 +180,10 @@ static int tor_handler(request_rec *r) {
 	 * We add the NULL filter to the stack to do this...
 	 */
 
-	//No we don't, this would mess up SSL, we need SSL???
-	//r->output_filters = NULL;
+	r->output_filters = NULL;
+	//I think this, this would mess up SSL, we need SSL???... But this
+	//won't happen until this while loop ends. Which means we need to re-write
+	//the while loop to read and write from.... ssl?
 	//r->connection->output_filters = NULL;
 
 
