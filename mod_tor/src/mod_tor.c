@@ -14,7 +14,7 @@
 #endif
 
 #ifndef DEFAULT_MODTOR_PORT
-#define DEFAULT_MODTOR_PORT 12312//44114//12312//443
+#define DEFAULT_MODTOR_PORT 44114//12312//443
 #endif
 
 
@@ -226,37 +226,216 @@ static int tor_hook_pre_connection(conn_rec *c, void *csd)
 
 
 
-/*
- * right after the read request
- */
-int tor_hook_ReadReq(request_rec *r)
+
+
+
+
+
+
+
+
+
+
+static int tor_proxy(request_rec *r)
 {
+    apr_pool_t *p = r->pool;
+    apr_socket_t *sock;
+    apr_size_t i, o, nbytes;
+    char buffer[HUGE_STRING_LEN];
+    apr_status_t err, rv;
+    apr_socket_t *client_socket = ap_get_module_config(r->connection->conn_config, &core_module);
+    apr_pollset_t *pollset;
+    apr_pollfd_t pollfd;
+    const apr_pollfd_t *signalled;
+    apr_int32_t pollcnt, pi;
+    apr_int16_t pollevent;
 
+    //apr_uri_t uri;
+    //const char *connectname;
+    //int connectport = 0;
+
+
+    //CHANGE ALL OF THE NULL'S in ap_log_error back to r->server
+
+
+    /* is this for us? */
     TorConnRec *torconn = myTorConnConfig(r->connection);
-
     if (torconn && !(torconn->isAuthenticated)) {
+        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+             "proxy: TOR: DECLINED because not authenticated...");
             return DECLINED;
     }
+		//set sock to our connection based socket to tor from torconn
+		//XXX:Actually just create the socket here no need to put it in memory
+    sock = torconn->apache2_to_tor_sock;
+
+    if(sock == NULL){
+    	//For some reason the socket is null. XXX: Should probably return an error here
+    	//So tor client knows the server is having problems
+    	return DECLINED;
+    }
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+         "proxy: TOR: dot dot dot");
 
 
-	/*
-	 Somehow get the data from the request
-	 TorConnRec *torconn = myTorConnConfig(r->connection);
-	 apr_socket_send(apache2_to_tor_sock, getReq, &len);*/
+    /*
+     *
+     *
+     * The following code is almost entirely copied from
+     * mod_proxy_connect
+     *
+     *
+     */
+
+    /* we are acting as a tunnel - the output filter stack should
+     * be completely empty, because when we are done here we are done completely.
+     * We add the NULL filter to the stack to do this...
+     */
+
+    //No we don't, this would mess up SSL, we need SSL
+    //r->output_filters = NULL;
+    //r->connection->output_filters = NULL;
 
 
+	/*ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+		 "proxy: Tor: Returning 200 OK Status");
+	nbytes = apr_snprintf(buffer, sizeof(buffer),
+			  "HTTP/1.0 200 Connection Established" CRLF);
+	ap_xlate_proto_to_ascii(buffer, nbytes);
+	apr_socket_send(client_socket, buffer, &nbytes);
+	nbytes = apr_snprintf(buffer, sizeof(buffer),
+			  "Proxy-agent: %s" CRLF CRLF, ap_get_server_banner());
+	ap_xlate_proto_to_ascii(buffer, nbytes);
+	apr_socket_send(client_socket, buffer, &nbytes);*/
 
-		//This is where we would pass the data to Tor
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+         "proxy: TOR: setting up poll()");
+
+    /*
+     * Step Four: Handle Data Transfer
+     *
+     * Handle two way transfer of data over the socket (this is a tunnel).
+     */
+
+/*    r->sent_bodyct = 1;*/
+
+    if ((rv = apr_pollset_create(&pollset, 2, r->pool, 0)) != APR_SUCCESS) {
+        apr_socket_close(sock);
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
+            "proxy: TOR: error apr_pollset_create()");
+        return HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    /* Add client side to the poll */
+    pollfd.p = r->pool;
+    pollfd.desc_type = APR_POLL_SOCKET;
+    pollfd.reqevents = APR_POLLIN;
+    pollfd.desc.s = client_socket;
+    pollfd.client_data = NULL;
+    apr_pollset_add(pollset, &pollfd);
+
+    /* Add the server side to the poll */
+    pollfd.desc.s = torconn->apache2_to_tor_sock;//sock;
+    apr_pollset_add(pollset, &pollfd);
+
+    while (1) { /* Infinite loop until error (one side closes the connection) */
+        if ((rv = apr_pollset_poll(pollset, -1, &pollcnt, &signalled)) != APR_SUCCESS) {
+            apr_socket_close(sock);
+            ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "proxy: Tor: error apr_poll()");
+            return HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+                     "proxy: Tor: woke from select(), i=%d", pollcnt);
+
+        for (pi = 0; pi < pollcnt; pi++) {
+            const apr_pollfd_t *cur = &signalled[pi];
+
+            if (cur->desc.s == sock) {
+                pollevent = cur->rtnevents;
+                if (pollevent & APR_POLLIN) {
+                    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+                                 "proxy: TOR: sock was set");
+                    nbytes = sizeof(buffer);
+                    rv = apr_socket_recv(sock, buffer, &nbytes);
+                    if (rv == APR_SUCCESS) {
+                        o = 0;
+                        i = nbytes;
+                        while(i > 0)
+                        {
+                            nbytes = i;
+    /* This is just plain wrong.  No module should ever write directly
+     * to the client.  For now, this works, but this is high on my list of
+     * things to fix.  The correct line is:
+     * if ((nbytes = ap_rwrite(buffer + o, nbytes, r)) < 0)
+     * rbb
+     */
+                            rv = apr_socket_send(client_socket, buffer + o, &nbytes);
+                            if (rv != APR_SUCCESS)
+                                break;
+                            o += nbytes;
+                            i -= nbytes;
+                        }
+                    }
+                    else
+                        break;
+                }
+                else if ((pollevent & APR_POLLERR) || (pollevent & APR_POLLHUP))
+                    break;
+            }
+            else if (cur->desc.s == client_socket) {
+                pollevent = cur->rtnevents;
+                if (pollevent & APR_POLLIN) {
+                    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+                                 "proxy: Tor: client was set");
+                    nbytes = sizeof(buffer);
+                    rv = apr_socket_recv(client_socket, buffer, &nbytes);
+                    if (rv == APR_SUCCESS) {
+                        o = 0;
+                        i = nbytes;
+                        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+                                     "proxy: Tor: read %d from client", i);
+                        while(i > 0)
+                        {
+                            nbytes = i;
+                            rv = apr_socket_send(sock, buffer + o, &nbytes);
+                            if (rv != APR_SUCCESS)
+                                break;
+                            o += nbytes;
+                            i -= nbytes;
+                        }
+                    }
+                    else
+                        break;
+                }
+                else if ((pollevent & APR_POLLERR) || (pollevent & APR_POLLHUP)) {
+                    rv = APR_EOF;
+                    break;
+                }
+            }
+            else
+                break;
+        }
+        if (rv != APR_SUCCESS) {
+            break;
+        }
+    }
+
+    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, NULL,
+         "proxy: Tor: finished with poll() - cleaning up");
+
+    /*
+     * Step Five: Clean Up
+     *
+     * Close the socket and clean up
+     */
+	// I THINK this is done automatically by my cleanup code when it is initiated
+    //XXX:Rewrite this to open and close socket here anyway maybe?
+    //apr_socket_close(sock);
+
     return OK;
 }
-
-
-
-
-
-
-
-
 
 
 
@@ -275,22 +454,10 @@ static int tor_handler(request_rec *r) {
 	return DECLINED;
   }
 
-	  //handle the reply if the connection is authenticated.
-	  //yea this is probably SOOOO wrong. But I currently have no idea
-	  //how to do this
-  /*TorConnRec *torconn = myTorConnConfig(r->connection);
-  if(torconn && torconn->isAuthenticated ){
-		apr_size_t len = 1024;//i have no idea what this should be
-		char buf[len];
-		apr_socket_recv(apache2_to_tor_sock, &(buf[0]), &len);
-		ap_rwrite(buf, len, r);
-		return OK;
-  }*/
-
-  if ((APR_RETRIEVE_OPTIONAL_FN(ssl_is_https))(r->connection) == 0){
+  /*if ((APR_RETRIEVE_OPTIONAL_FN(ssl_is_https))(r->connection) == 0){
 	//the connection isn't HTTPS
 	return DECLINED;
-  }
+  }*/
 
   if (r->method_number != M_GET) {
 	  // Wasn't a GET request, no need to look at it
@@ -319,15 +486,16 @@ static int tor_handler(request_rec *r) {
   TorConnRec *torconn = myTorConnConfig(r->connection);
   if(torconn && torconn->isAuthenticated==1){
 	  //ap_rputs("<br/>\nYou have <b>ALREADY</b> been authenticated.", r);
-	  ap_set_content_type(r, "text/html");
-	  ap_rputs("already_authenticated", r);
+	  //ap_set_content_type(r, "text/html");
+	  //ap_rputs("already_authenticated", r);
   }
   else if(torconn){
 		  //Build socket to tor for this connection
 	  if(APR_SUCCESS == tor_init_connection_tor_socket(r->connection,torconn)){
 		  torconn->isAuthenticated = 1;
-		  ap_set_content_type(r, "text/html");
-		  ap_rputs("authenticated", r);
+		  //ap_set_content_type(r, "text/html");
+		  //ap_rputs("authenticated", r);
+
 	  }
 	  else{
 		  //ERROR
@@ -391,28 +559,6 @@ tor_init(apr_pool_t * config_pool, apr_pool_t * plog, apr_pool_t * ptemp,
 
 
 
-
-
-
-
-
-
-
-
-static void tor_hooks(apr_pool_t *pool) {
-/* tor_hook_ReadReq needs the data to be decrypted before sending to tor
- * so run after mod_ssl's post_read_request hook. */
-  static const char *pre_prr[] = { "mod_ssl.c", NULL };
-
-  /*Per Connection Hook that sets up the connections state*/
-  ap_hook_pre_connection(tor_hook_pre_connection, NULL, NULL, APR_HOOK_MIDDLE);
-  /*Per read request that looks to see if the connection is authenticated*/
-  ap_hook_post_read_request(tor_hook_ReadReq, pre_prr, NULL, APR_HOOK_MIDDLE);
-  /* hook tor_handler in to apache2 */
-  ap_hook_post_config(tor_init, NULL, NULL, APR_HOOK_MIDDLE);
-  /* hook tor_handler in to apache2 */
-  ap_hook_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
-}
 
 
 
@@ -500,7 +646,20 @@ static void *create_modtor_config(apr_pool_t *p, server_rec *s)
 
 
 
+static void tor_hooks(apr_pool_t *pool) {
+/* tor_hook_ReadReq needs the data to be decrypted before sending to tor
+ * so run after mod_ssl's post_read_request hook. */
+  static const char *pre_prr[] = { "mod_ssl.c", NULL };
 
+  /*Per Connection Hook that sets up the connections state*/
+  ap_hook_pre_connection(tor_hook_pre_connection, NULL, NULL, APR_HOOK_MIDDLE);
+  /*Per read request that looks to see if the connection is authenticated*/
+  //ap_hook_post_read_request(tor_hook_ReadReq, pre_prr, NULL, APR_HOOK_MIDDLE);
+  /* hook tor_handler in to apache2 */
+  ap_hook_post_config(tor_init, NULL, NULL, APR_HOOK_MIDDLE);
+  /* hook tor_handler in to apache2 */
+  ap_hook_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
+}
 
 
 
