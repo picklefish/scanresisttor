@@ -52,8 +52,8 @@ Shane Pope
     - Authenticate the user if the correct password is sent, otherwise let Apache
       handle the request. (DONE)
     - Create a socket to local Tor bridge (DONE - Socket per connection)
-    - Pass all bits from authenticated client connection to Tor
-    - Pass all bits from local Tor back to authenticated client
+    - Pass all bits from authenticated client connection to Tor (Done - Works HTTP not HTTPS)
+    - Pass all bits from local Tor back to authenticated client (Done - Works HTTP not HTTPS)
 
 2.4 Required Changes to Tor Server
 
@@ -66,7 +66,12 @@ Shane Pope
     - Completely hides initial Tor handshake
     - No window of time to be scanned at all.
 
+2.6 Problems
 
+    - Currently no defense against man-in-the-middle attack when sending the plaintext 
+      password under TLS. This is because it is hard to share a nonce without giving
+      away that the server is running Tor. Time is hard to use due to large asynchrony
+      between individual clocks on the internet.
 
 
 
