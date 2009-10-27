@@ -5,19 +5,19 @@
 #include <mod_proxy.h>
 #include <apr_poll.h>
 
+#include "ssl_private.h"
+
 
 /*
  * The default value for config directives
  */
 #ifndef DEFAULT_MODTOR_PASSWORD
-#define DEFAULT_MODTOR_PASSWORD "password=pancake"
+#define DEFAULT_MODTOR_PASSWORD "tor://password=pancake"
 #endif
 
 #ifndef DEFAULT_MODTOR_PORT
 #define DEFAULT_MODTOR_PORT 44114//12312//443
 #endif
-
-
 
 /*
  * This module
@@ -55,15 +55,19 @@ static modtor_config *s_cfg = NULL;
  * and authenticates the user if they send the correct password
  */
 
-static int tor_handler(request_rec *r) {
+static int tor_handler(request_rec *r, proxy_worker *worker,
+					   proxy_server_conf *conf,
+					   char *url, const char *proxyname,
+					   apr_port_t proxyport) {
 
-  if (!r->handler || strcasecmp(r->handler, "tor") != 0) {
-    //r->handler wasn't "tor"
-	return DECLINED;
+  if (strncasecmp(url, "tor:", 4)) {
+	  ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+		  		 "proxy: tor: declining URL %s - not tor:", url);
+	  return DECLINED;        /* only interested in tor */
   }
 
-  /*if ((APR_RETRIEVE_OPTIONAL_FN(ssl_is_https))(r->connection) == 0){
-	//the connection isn't HTTPS
+  /*if (!r->handler || strcasecmp(r->handler, "tor") != 0) {
+    //r->handler wasn't "tor"
 	return DECLINED;
   }*/
 
@@ -72,15 +76,25 @@ static int tor_handler(request_rec *r) {
 	 return DECLINED;
   }
 
+  if ((APR_RETRIEVE_OPTIONAL_FN(ssl_is_https))(r->connection) == 0){
+	//the connection isn't HTTPS
+	return DECLINED;
+  }
+
+  if( strncasecmp(url, s_cfg->mod_tor_password, strlen(s_cfg->mod_tor_password) ) != 0 ){
+	  //the query string did not match the configuration password
+	  return DECLINED;
+  }
+
+  /*//Compare the querystring
   if (!r->args) {
 	  // No query string sent
 	  return DECLINED;
   }
-
   if( strncmp(r->args, s_cfg->mod_tor_password, strlen(s_cfg->mod_tor_password) ) != 0 ){
 	  //the query string did not match the configuration password
 	  return DECLINED;
-  }
+  }*/
 
   /* OK, we're happy with this request, so we'll return the response. */
 
@@ -95,11 +109,15 @@ static int tor_handler(request_rec *r) {
   //ap_rputs("authenticated", r);
 
 	apr_pool_t *p = r->pool;
+	conn_rec *c = r->connection;
 	apr_socket_t *apache2_to_tor_sock;
 	apr_size_t i, o, nbytes;
 	char buffer[HUGE_STRING_LEN];
 	apr_status_t err, rv;
+
 	apr_socket_t *client_socket = ap_get_module_config(r->connection->conn_config, &core_module);
+    proxy_conn_rec *backend = NULL;
+
 	apr_pollset_t *pollset;
 	apr_pollfd_t pollfd;
 	const apr_pollfd_t *signalled;
@@ -166,6 +184,8 @@ static int tor_handler(request_rec *r) {
 		 "proxy: TOR: dot dot dot");
 
 
+
+
 	/*
 	 *
 	 *
@@ -179,12 +199,11 @@ static int tor_handler(request_rec *r) {
 	 * be completely empty, because when we are done here we are done completely.
 	 * We add the NULL filter to the stack to do this...
 	 */
-
 	r->output_filters = NULL;
-	//I think this, this would mess up SSL, we need SSL???... But this
-	//won't happen until this while loop ends. Which means we need to re-write
-	//the while loop to read and write from.... ssl?
 	//r->connection->output_filters = NULL;
+
+	(APR_RETRIEVE_OPTIONAL_FN(ssl_proxy_enable))(c);
+	//(APR_RETRIEVE_OPTIONAL_FN(ssl_engine_disable))(c);
 
 
 	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
@@ -197,7 +216,7 @@ static int tor_handler(request_rec *r) {
 			  "Proxy-agent: %s" CRLF CRLF, "Mod_Tor");
 	ap_xlate_proto_to_ascii(buffer, nbytes);
 	apr_socket_send(client_socket, buffer, &nbytes);
-
+    return OK;
 
 	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
 		 "proxy: TOR: setting up poll()");
@@ -229,6 +248,7 @@ static int tor_handler(request_rec *r) {
 	pollfd.desc.s = apache2_to_tor_sock;//sock;
 	apr_pollset_add(pollset, &pollfd);
 
+
 	while (1) { /* Infinite loop until error (one side closes the connection) */
 		if ((rv = apr_pollset_poll(pollset, -1, &pollcnt, &signalled)) != APR_SUCCESS) {
 			apr_socket_close(apache2_to_tor_sock);
@@ -254,13 +274,24 @@ static int tor_handler(request_rec *r) {
 						while(i > 0)
 						{
 							nbytes = i;
-	/* This is just plain wrong.  No module should ever write directly
+	/* This is a comment from mod_proxy_connect
+	 * This is just plain wrong.  No module should ever write directly
 	 * to the client.  For now, this works, but this is high on my list of
 	 * things to fix.  The correct line is:
 	 * if ((nbytes = ap_rwrite(buffer + o, nbytes, r)) < 0)
 	 * rbb
 	 */
-							rv = apr_socket_send(client_socket, buffer + o, &nbytes);
+							/*Stuff shane is adding....*/
+							/*apr_bucket_brigade *temp_brigade = apr_brigade_create(r->pool, c->bucket_alloc);
+							rv = ap_fwrite(r->connection->output_filters, temp_brigade, buffer + o, nbytes);*/
+							/*SSLConnRec *sslconn = myConnConfig(c);
+							sslconn->ssl->packet = (unsigned char*)buffer + o;
+							sslconn->ssl->packet_length = nbytes;
+							rv = SSL_read(sslconn->ssl, buffer + o, nbytes);*/
+							SSLConnRec *sslconn = (SSLConnRec *)ap_get_module_config(c->conn_config, &ssl_module);
+							rv = SSL_write(sslconn->ssl, buffer + o, nbytes);
+
+							//rv = apr_socket_send(client_socket, buffer + o, &nbytes);
 							if (rv != APR_SUCCESS)
 								break;
 							o += nbytes;
@@ -279,7 +310,29 @@ static int tor_handler(request_rec *r) {
 					ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
 								 "proxy: Tor: client was set");
 					nbytes = sizeof(buffer);
-					rv = apr_socket_recv(client_socket, buffer, &nbytes);
+
+					/*Shane modifies the recv to go through SSL Hopefully?? */
+					/*apr_bucket_brigade temp_brigade = apr_brigade_create(p, r->connection->bucket_alloc);
+				    status = ap_get_brigade(r->connection->input_filters, temp_brigade,
+				                                AP_MODE_READBYTES, APR_BLOCK_READ,
+				                                nbytes);
+				    if (status != APR_SUCCESS)
+				    	break;*/
+
+					/*SSLConnRec *sslconn = myConnConfig(c);
+					rv = SSL_write(sslconn->ssl, buffer, nbytes);
+					strncpy(buffer, sslconn->ssl->packet, nbytes);*/
+
+					//c->conn_config;
+					SSLConnRec *sslconn = (SSLConnRec *)ap_get_module_config(c->conn_config, &ssl_module);
+					rv = SSL_read(sslconn->ssl, buffer, nbytes);
+					ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+								 "proxy: Tor: read %d from client %c", buffer);
+
+					//rv = apr_socket_recv(client_socket, buffer, &nbytes);
+
+
+
 					if (rv == APR_SUCCESS) {
 						o = 0;
 						i = nbytes;
@@ -462,17 +515,20 @@ static void *create_modtor_config(apr_pool_t *p, server_rec *s)
 
 
 static void tor_hooks(apr_pool_t *pool) {
-/* tor_hook_ReadReq needs the data to be decrypted before sending to tor
- * so run after mod_ssl's post_read_request hook. */
-  static const char *pre_prr[] = { "mod_ssl.c", NULL };
+/* tor_handler needs the data to be decrypted before sending to tor
+ * so run after mod_ssl's post_read_request hook.
+ * This may not actually be needed...*/
 
-  /* hook tor_handler in to apache2 */
+  /* hook tor_init in to apache2 after config */
   ap_hook_post_config(tor_init, NULL, NULL, APR_HOOK_MIDDLE);
+  /* hook tor_handler in to apache2 PROXY VERSION */
+  proxy_hook_scheme_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
+
+
+  //static const char *pre_prr[] = { "mod_ssl.c", NULL };
   /* hook tor_handler in to apache2 */
-  ap_hook_handler(tor_handler, pre_prr, NULL, APR_HOOK_MIDDLE);
+  //ap_hook_handler(tor_handler, pre_prr, NULL, APR_HOOK_MIDDLE);
 }
-
-
 
 
 
