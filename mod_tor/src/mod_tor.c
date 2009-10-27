@@ -12,7 +12,7 @@
  * The default value for config directives
  */
 #ifndef DEFAULT_MODTOR_PASSWORD
-#define DEFAULT_MODTOR_PASSWORD "tor://password=pancake"
+#define DEFAULT_MODTOR_PASSWORD "password=pancake"//"tor://password=pancake"
 #endif
 
 #ifndef DEFAULT_MODTOR_PORT
@@ -60,33 +60,34 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 					   char *url, const char *proxyname,
 					   apr_port_t proxyport) {
 
-  if (strncasecmp(url, "tor:", 4)) {
+  /*if (strncasecmp(url, "tor:", 4)) {
 	  ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
 		  		 "proxy: tor: declining URL %s - not tor:", url);
-	  return DECLINED;        /* only interested in tor */
-  }
+	  return DECLINED;        // only interested in tor
+  }*/
 
-  /*if (!r->handler || strcasecmp(r->handler, "tor") != 0) {
+  if (!r->handler || strcasecmp(r->handler, "tor") != 0) {
     //r->handler wasn't "tor"
 	return DECLINED;
-  }*/
+  }
 
   if (r->method_number != M_GET) {
 	  // Wasn't a GET request, no need to look at it
 	 return DECLINED;
   }
 
+  /*//IS THE CONNECTION HTTPS?
   if ((APR_RETRIEVE_OPTIONAL_FN(ssl_is_https))(r->connection) == 0){
 	//the connection isn't HTTPS
 	return DECLINED;
-  }
+  }*/
 
-  if( strncasecmp(url, s_cfg->mod_tor_password, strlen(s_cfg->mod_tor_password) ) != 0 ){
+  /*if( strncasecmp(url, s_cfg->mod_tor_password, strlen(s_cfg->mod_tor_password) ) != 0 ){
 	  //the query string did not match the configuration password
 	  return DECLINED;
-  }
+  }*/
 
-  /*//Compare the querystring
+  //Compare the querystring
   if (!r->args) {
 	  // No query string sent
 	  return DECLINED;
@@ -94,7 +95,7 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
   if( strncmp(r->args, s_cfg->mod_tor_password, strlen(s_cfg->mod_tor_password) ) != 0 ){
 	  //the query string did not match the configuration password
 	  return DECLINED;
-  }*/
+  }
 
   /* OK, we're happy with this request, so we'll return the response. */
 
@@ -114,10 +115,7 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 	apr_size_t i, o, nbytes;
 	char buffer[HUGE_STRING_LEN];
 	apr_status_t err, rv;
-
 	apr_socket_t *client_socket = ap_get_module_config(r->connection->conn_config, &core_module);
-    proxy_conn_rec *backend = NULL;
-
 	apr_pollset_t *pollset;
 	apr_pollfd_t pollfd;
 	const apr_pollfd_t *signalled;
@@ -202,21 +200,34 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 	r->output_filters = NULL;
 	//r->connection->output_filters = NULL;
 
-	(APR_RETRIEVE_OPTIONAL_FN(ssl_proxy_enable))(c);
-	//(APR_RETRIEVE_OPTIONAL_FN(ssl_engine_disable))(c);
-
+	//SSLConnRec *sslconn = NULL;
+	//if ((APR_RETRIEVE_OPTIONAL_FN(ssl_is_https))(r->connection) != 0){
+	//	sslconn = (SSLConnRec *)ap_get_module_config(c->conn_config, &ssl_module);
+	//}
 
 	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
 		 "proxy: Tor: Returning 200 OK Status");
 	nbytes = apr_snprintf(buffer, sizeof(buffer),
 			  "HTTP/1.0 200 Connection Established" CRLF);
 	ap_xlate_proto_to_ascii(buffer, nbytes);
-	apr_socket_send(client_socket, buffer, &nbytes);
+
+	//if(sslconn != NULL){
+	//	rv = SSL_write(sslconn->ssl, buffer, nbytes);
+	//}
+	//else{
+		apr_socket_send(client_socket, buffer, &nbytes);
+	//}
+
 	nbytes = apr_snprintf(buffer, sizeof(buffer),
 			  "Proxy-agent: %s" CRLF CRLF, "Mod_Tor");
 	ap_xlate_proto_to_ascii(buffer, nbytes);
-	apr_socket_send(client_socket, buffer, &nbytes);
-    return OK;
+
+	//if(sslconn != NULL){
+	//	rv = SSL_write(sslconn->ssl, buffer, nbytes);
+	//}
+	//else{
+		apr_socket_send(client_socket, buffer, &nbytes);
+	//}
 
 	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
 		 "proxy: TOR: setting up poll()");
@@ -288,10 +299,14 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 							sslconn->ssl->packet = (unsigned char*)buffer + o;
 							sslconn->ssl->packet_length = nbytes;
 							rv = SSL_read(sslconn->ssl, buffer + o, nbytes);*/
-							SSLConnRec *sslconn = (SSLConnRec *)ap_get_module_config(c->conn_config, &ssl_module);
-							rv = SSL_write(sslconn->ssl, buffer + o, nbytes);
 
-							//rv = apr_socket_send(client_socket, buffer + o, &nbytes);
+							//if(sslconn != NULL){
+								//rv = SSL_write(sslconn->ssl, buffer + o, nbytes);
+							//}
+							//else{
+								rv = apr_socket_send(client_socket, buffer + o, &nbytes);
+							//}
+
 							if (rv != APR_SUCCESS)
 								break;
 							o += nbytes;
@@ -324,12 +339,12 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 					strncpy(buffer, sslconn->ssl->packet, nbytes);*/
 
 					//c->conn_config;
-					SSLConnRec *sslconn = (SSLConnRec *)ap_get_module_config(c->conn_config, &ssl_module);
-					rv = SSL_read(sslconn->ssl, buffer, nbytes);
-					ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-								 "proxy: Tor: read %d from client %c", buffer);
-
-					//rv = apr_socket_recv(client_socket, buffer, &nbytes);
+					//if(sslconn != NULL){
+						//rv = SSL_read(sslconn->ssl, buffer, nbytes);
+					//}
+					//else{
+						rv = apr_socket_recv(client_socket, buffer, &nbytes);
+					//}
 
 
 
@@ -521,13 +536,13 @@ static void tor_hooks(apr_pool_t *pool) {
 
   /* hook tor_init in to apache2 after config */
   ap_hook_post_config(tor_init, NULL, NULL, APR_HOOK_MIDDLE);
-  /* hook tor_handler in to apache2 PROXY VERSION */
-  proxy_hook_scheme_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
-
-
-  //static const char *pre_prr[] = { "mod_ssl.c", NULL };
+  static const char *pre_prr[] = { "mod_ssl.c", NULL };
   /* hook tor_handler in to apache2 */
-  //ap_hook_handler(tor_handler, pre_prr, NULL, APR_HOOK_MIDDLE);
+  ap_hook_handler(tor_handler, pre_prr, NULL, APR_HOOK_MIDDLE);
+
+
+  /* hook tor_handler in to apache2 PROXY VERSION */
+  //proxy_hook_scheme_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 
