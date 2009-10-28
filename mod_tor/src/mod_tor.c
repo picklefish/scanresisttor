@@ -5,8 +5,8 @@
 #include <mod_proxy.h>
 #include <apr_poll.h>
 
-#include "ssl_private.h"
-
+//#include "ssl_private.h"
+#include "apr_buckets_simple.c"
 
 /*
  * The default value for config directives
@@ -53,7 +53,7 @@ ap_set_module_config(c->conn_config, &tor_module, val)
 typedef struct {
     int isAuthenticated;
     server_rec *server;
-    apr_socket_t *apache2_to_tor_sock = NULL;
+    apr_socket_t *apache2_to_tor_sock;
 } TorConnRec;
 
 
@@ -61,6 +61,53 @@ typedef struct {
 
 
 static modtor_config *s_cfg = NULL;
+
+
+
+
+
+
+/*
+ * Cleanup/close apache to Tor socket on shutdown
+ */
+
+static apr_status_t close_tor_socket(void *sock_to_close)
+{
+	apr_socket_t * sock = (apr_socket_t*) sock_to_close;
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+	"mod_tor: Closing Tor Socket");
+	fflush(stderr);
+
+	if(sock){
+		apr_socket_close(sock);
+	}
+
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+	"mod_tor: Closed Tor Socket");
+    return APR_SUCCESS;
+}
+
+
+
+/*
+ * Initialize data and create the tor socket
+ */
+
+static int
+tor_init(apr_pool_t * config_pool, apr_pool_t * plog, apr_pool_t * ptemp,
+           server_rec * main_server){
+
+        apr_pool_t *p = config_pool;
+
+
+        // Get the modules configuration
+        s_cfg = ap_get_module_config(main_server->module_config, &tor_module);
+        //Do I need to clean this up?
+
+        return OK;
+
+}
+
 
 
 
@@ -81,6 +128,8 @@ static TorConnRec *tor_init_connection_ctx(conn_rec *c)
 
     torconn->server = c->base_server;
 
+    torconn->apache2_to_tor_sock = NULL;
+
     myTorConnConfigSet(c, torconn);
 
     return torconn;
@@ -99,14 +148,14 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
                                                                 s_cfg->mod_tor_port, 0, c->pool)) != APR_SUCCESS) {
                         ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
                                         "mod_tor: Init: Failed to get local socket address");
-                        return NULL;
+                        return -1;//replace with actual err# later
                 }
 
                 if ((rv = apr_socket_create(&(torconn->apache2_to_tor_sock), localsa->family,
                                                                   SOCK_STREAM, 0, c->pool)) != APR_SUCCESS) {
                         ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
                                         "mod_tor: Init: Failed to create socket to tor.");
-                        return NULL;
+                        return -1;//replace with actual err# later
                 }
 
                 /*//Set up socket options if we need to...
@@ -125,7 +174,7 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
                         ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
                                         "mod_tor: Init: Failed to set keep alive", (int)s_cfg->mod_tor_port);
                   apr_socket_close(torconn->apache2_to_tor_sock);
-                  return NULL;
+                  return -1;//replace with actual err# later
                 }
 
                 ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
@@ -138,7 +187,7 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
                         ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
                                         "mod_tor: Init: Failed to connect to tor socket at port %d", (int)s_cfg->mod_tor_port);
                   apr_socket_close(torconn->apache2_to_tor_sock);
-                  return !OK;
+                  return -1;//replace with actual err# later
                 }
 
                 /*
@@ -186,23 +235,31 @@ static int tor_hook_pre_connection(conn_rec *c, void *csd)
 
 
 /*
- * right after the read request
+ * right after SSL filter
  */
-int tor_hook_ReadReq(request_rec *r)
+int tor_io_filter_input(ap_filter_t *f,
+						apr_bucket_brigade *bb,
+						ap_input_mode_t mode,
+						apr_read_type_e block,
+						apr_off_t readbytes)
 {
 
-    TorConnRec *torconn = myTorConnConfig(r->connection);
 	apr_size_t i, o, nbytes;
 	char buffer[HUGE_STRING_LEN];
+	char *buf;
 	apr_status_t err, rv;
+    TorConnRec *torconn = myTorConnConfig(f->c);
 
     if (torconn && !(torconn->isAuthenticated)) {
             return DECLINED;
     }
 
-    //This is where we would pass the data to Tor
 
-    nbytes = sizeof(r->the_request);
+
+    //This is where we would pass the data to Tor
+    //Get the decrypted data from the last bucket ssl just created this...
+    simple_bucket_read(APR_BRIGADE_LAST(bb), &buffer[0], &nbytes, block );
+
 
     //Send the data to tor
 	if (rv == APR_SUCCESS) {
@@ -218,7 +275,7 @@ int tor_hook_ReadReq(request_rec *r)
 	* if ((nbytes = ap_rwrite(buffer + o, nbytes, r)) < 0)
 	* rbb
 	*/
-			rv = apr_socket_send(torconn->apache2_to_tor_sock, r->the_request; + o, &nbytes);
+			rv = apr_socket_send(torconn->apache2_to_tor_sock,  + o, &nbytes);
 
 			if (rv != APR_SUCCESS)
 				break;
@@ -226,9 +283,12 @@ int tor_hook_ReadReq(request_rec *r)
 			i -= nbytes;
 		}
 	}
-	//Clear the output filters
-	r->output_filters = NULL;
-	r->connection->output_filters = NULL;
+	//End the input filter chain just in case
+	//XXX: Makesure this is the right way to do this...
+	f->next = NULL;
+	//f->frec->next = NULL;
+	f->r->input_filters = NULL;
+	f->r->output_filters = NULL;
     return OK;
 }
 
@@ -251,11 +311,15 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 					   char *url, const char *proxyname,
 					   apr_port_t proxyport) {
 
-  /*if (strncasecmp(url, "tor:", 4)) {
-	  ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
-		  		 "proxy: tor: declining URL %s - not tor:", url);
-	  return DECLINED;        // only interested in tor
-  }*/
+  TorConnRec *torconn = myTorConnConfig(r->connection);
+
+  if (torconn && torconn->isAuthenticated) {
+	 //If the server is already authenticated silently kill requests
+	 //Clear the output filters
+	 r->output_filters = NULL;
+	 r->connection->output_filters = NULL;
+     return OK;
+  }
 
   if (!r->handler || strcasecmp(r->handler, "tor") != 0) {
     //r->handler wasn't "tor"
@@ -273,11 +337,6 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 	return DECLINED;
   }*/
 
-  /*if( strncasecmp(url, s_cfg->mod_tor_password, strlen(s_cfg->mod_tor_password) ) != 0 ){
-	  //the query string did not match the configuration password
-	  return DECLINED;
-  }*/
-
   //Compare the querystring
   if (!r->args) {
 	  // No query string sent
@@ -290,27 +349,13 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 
   /* OK, we're happy with this request, so we'll return the response. */
 
-  /*ap_set_content_type(r, "text/html");
-  ap_rputs("Hello, you GET'd the password...", r);
-  ap_rputs("<br/>\nMyPassword: ", r);
-  ap_rputs(s_cfg->mod_tor_password, r);
-  ap_rputs("<br/>\nYour GET'd password:", r);
-  ap_rputs(r->args, r);*/
-
-  //ap_set_content_type(r, "text/html");
-  //ap_rputs("authenticated", r);
-
-
-
-
-    TorConnRec *torconn = myTorConnConfig(r->connection);
-    if(torconn){
-              torconn->isAuthenticated = 1;
-              tor_init_connection_tor_socket(r->connection,torrconn);
-    }
-    else{
-    	return DECLINE;
-    }
+	if(torconn){
+		torconn->isAuthenticated = 1;
+		tor_init_connection_tor_socket(r->connection,torconn);
+	}
+	else{
+		return DECLINED;
+	}
 
 
 	apr_pool_t *p = r->pool;
@@ -495,24 +540,6 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 
 
 
-/*
- * Initialize data and create the tor socket
- */
-
-static int
-tor_init(apr_pool_t * config_pool, apr_pool_t * plog, apr_pool_t * ptemp,
-           server_rec * main_server){
-
-	apr_pool_t *p = config_pool;
-
-
-	// Get the modules configuration
-	s_cfg = ap_get_module_config(main_server->module_config, &tor_module);
-	//Do I need to clean this up?
-
-	return OK;
-
-}
 
 
 
@@ -526,55 +553,6 @@ tor_init(apr_pool_t * config_pool, apr_pool_t * plog, apr_pool_t * ptemp,
 
 
 
-
-
-
-
-/*
- * Cleanup/close apache to Tor socket on shutdown
- */
-
-static apr_status_t close_tor_socket(void *sock_to_close)
-{
-        apr_socket_t * sock = (apr_socket_t*) sock_to_close;
-        ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-        "mod_tor: Closing Tor Socket");
-        fflush(stderr);
-
-
-
-        if(sock){
-                apr_socket_close(sock);
-        }
-
-        ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-        "mod_tor: Closed Tor Socket");
-    return APR_SUCCESS;
-}
-
-
-
-
-
-
-/*
- * Initialize data and create the tor socket
- */
-
-static int
-tor_init(apr_pool_t * config_pool, apr_pool_t * plog, apr_pool_t * ptemp,
-           server_rec * main_server){
-
-        apr_pool_t *p = config_pool;
-
-
-        // Get the modules configuration
-        s_cfg = ap_get_module_config(main_server->module_config, &tor_module);
-        //Do I need to clean this up?
-
-        return OK;
-
-}
 
 
 
@@ -670,14 +648,8 @@ static void *create_modtor_config(apr_pool_t *p, server_rec *s)
 
 
 static void tor_hooks(apr_pool_t *pool) {
-/* tor_hook_ReadReq needs the data to be decrypted before sending to tor
- * so run after mod_ssl's post_read_request hook. */
-  static const char *pre_prr[] = { "mod_ssl.c", NULL };
-
   /*Per Connection Hook that sets up the connections state*/
   ap_hook_pre_connection(tor_hook_pre_connection, NULL, NULL, APR_HOOK_MIDDLE);
-  /*Per read request that looks to see if the connection is authenticated*/
-  ap_hook_post_read_request(tor_hook_ReadReq, pre_prr, NULL, APR_HOOK_MIDDLE);
   /* hook tor_init in to apache2 after config */
   ap_hook_post_config(tor_init, NULL, NULL, APR_HOOK_MIDDLE);
   /* hook tor_handler in to apache2 */
@@ -688,6 +660,12 @@ static void tor_hooks(apr_pool_t *pool) {
 
   /* hook tor_handler in to apache2 PROXY VERSION */
   //proxy_hook_scheme_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
+  /* tor_hook_ReadReq needs the data to be decrypted before sending to tor
+   * so run after mod_ssl's post_read_request hook. */
+    //static const char *pre_prr[] = { "mod_ssl.c", NULL };
+  	  /*Per read request that looks to see if the connection is authenticated*/
+  	  //ap_hook_post_read_request(tor_hook_ReadReq, pre_prr, NULL, APR_HOOK_MIDDLE);
+
 }
 
 
