@@ -6,7 +6,7 @@
 #include <apr_poll.h>
 
 //#include "ssl_private.h"
-#include "apr_buckets_simple.c"
+//#include "apr_buckets_simple.c"
 //#include "http_request.c"
 
 /*
@@ -62,209 +62,6 @@ typedef struct {
 
 
 static modtor_config *s_cfg = NULL;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/*static request_rec *tor_create_outbound_req(request_rec *r) {
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: tor_create_outbound_req INSIDE");
-    int access_status;
-    request_rec *new;
-
-    if (ap_is_recursion_limit_exceeded(r)) {
-        ap_die(HTTP_INTERNAL_SERVER_ERROR, r);
-        return NULL;
-    }
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: pcalloc");
-    new = (request_rec *) apr_pcalloc(r->pool, sizeof(request_rec));
-
-    new->connection = r->connection;
-    new->server     = r->server;
-    new->pool       = r->pool;*/
-
-    /*
-     * A whole lot of this really ought to be shared with http_protocol.c...
-     * another missing cleanup.  It's particularly inappropriate to be
-     * setting header_only, etc., here.
-     */
-
-    /*new->method          = r->method;
-    new->method_number   = r->method_number;
-    new->allowed_methods = ap_make_method_list(new->pool, 2);
-    //ap_parse_uri(new, new_uri);
-
-    new->request_config = ap_create_request_config(r->pool);
-
-    new->per_dir_config = r->server->lookup_defaults;
-
-    //i THINK we want to remove these, as this should be a normal request
-    //-shane
-    new->prev = r;
-    r->next   = new;
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: create request");*/
-    /* Must have prev and next pointers set before calling create_request
-     * hook.
-     */
-    /*ap_run_create_request(new);
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: done create request");*/
-    /* Inherit the rest of the protocol info... */
-
-   /* new->the_request = r->the_request;
-
-    new->allowed         = r->allowed;
-
-    new->status          = r->status;
-    new->assbackwards    = r->assbackwards;
-    new->header_only     = r->header_only;
-    new->protocol        = r->protocol;
-    new->proto_num       = r->proto_num;
-    new->hostname        = r->hostname;
-    new->request_time    = r->request_time;
-    new->main            = r->main;
-
-    new->headers_in      = r->headers_in;
-    new->headers_out     = apr_table_make(r->pool, 12);
-    new->err_headers_out = r->err_headers_out;
-    new->subprocess_env  = rename_original_env(r->pool, r->subprocess_env);
-    new->notes           = apr_table_make(r->pool, 5);
-    new->allowed_methods = ap_make_method_list(new->pool, 2);
-
-    new->htaccess        = r->htaccess;
-    new->no_cache        = r->no_cache;
-    new->expecting_100   = r->expecting_100;
-    new->no_local_copy   = r->no_local_copy;
-    new->read_length     = r->read_length;    */ /* We can only read it once */
-    /*new->vlist_validator = r->vlist_validator;
-
-    new->proto_output_filters  = r->proto_output_filters;
-    new->proto_input_filters   = r->proto_input_filters;*/
-
-    /*
-     * I THINK this should add the SSL output filters we need... -shane
-     */
-    /*new->output_filters  = NULL;
-    new->input_filters   = r->output_filters;
-
-    //if (new->main) {
-        /* Add back the subrequest filter, which we lost when
-         * we set output_filters to include only the protocol
-         * output filters from the original request.
-         */
-        //ap_add_output_filter_handle(ap_subreq_core_filter_handle,
-        //                            NULL, new, new->connection);
-    //}
-
-    //update_r_in_filters(new->input_filters, r, new);
-    //update_r_in_filters(new->output_filters, r, new);
-
-    //apr_table_setn(new->subprocess_env, "REDIRECT_STATUS",
-                   //apr_itoa(r->pool, r->status));*/
-
-
-    /*
-     * XXX: hmm.  This is because mod_setenvif and mod_unique_id really need
-     * to do their thing on internal redirects as well.  Perhaps this is a
-     * misnamed function.
-     */
-    //we don't need to do this I THINK... -shane
-    //if ((access_status = ap_run_post_read_request(new))) {
-    //    ap_die(access_status, new);
-    //    return NULL;
-    //}
-
-	/*ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: all done with creating outbound rec");
-
-    return new;
-}*/
-
-/*
- * Copied from http_request...
- */
-/*static apr_table_t *rename_original_env(apr_pool_t *p, apr_table_t *t)
-{
-    const apr_array_header_t *env_arr = apr_table_elts(t);
-    const apr_table_entry_t *elts = (const apr_table_entry_t *) env_arr->elts;
-    apr_table_t *new = apr_table_make(p, env_arr->nalloc);
-    int i;
-
-    for (i = 0; i < env_arr->nelts; ++i) {
-        if (!elts[i].key)
-            continue;
-        apr_table_setn(new, apr_pstrcat(p, "REDIRECT_", elts[i].key, NULL),
-                  elts[i].val);
-    }
-
-    return new;
-}*/
-
-
-
-
-
-/*
- * Create a request and send it to the client so that SSL will be taken care of in the outbound filters
- */
-/*static apr_status_t tor_send_response(const void * buf, int offset, int nbytes, request_rec *r){
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: tor_send_response");
-	//Create a new request with the data so that apache will
-	//take care of the SSL decryption
-	request_rec *new = tor_create_outbound_req(r);
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: tor_create_outbound_req");
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: process rec");
-	ap_set_content_type(new, r->content_type);//Who knows what should really go here...-shane
-	//ap_set_content_type(new, "text/html");
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: writing");
-	ap_rwrite(buf + offset, nbytes, new);
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: ap_process request");
-	apr_status_t access_status = ap_process_request_internal(new);
-	if (access_status == OK) {
-		if ((access_status = ap_invoke_handler(new)) != 0) {
-			ap_die(access_status, new);
-			return -1;
-		}
-		ap_finalize_request_protocol(new);
-	}
-	else {
-		ap_die(access_status, new);
-	}
-	//rv = apr_socket_send(client_socket, buffer + o, &nbytes);
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: returning ok");
-	return OK;
-}
-*/
 
 
 
@@ -455,8 +252,9 @@ int tor_io_filter_input(ap_filter_t *f,
 {
 
 	apr_size_t i, o, nbytes;
+	nbytes=HUGE_STRING_LEN;
 	char buffer[HUGE_STRING_LEN];
-	char *buf;
+	//char *buf;
 	apr_status_t err, rv;
     TorConnRec *torconn = myTorConnConfig(f->c);
 
@@ -472,11 +270,33 @@ int tor_io_filter_input(ap_filter_t *f,
 
     //This is where we would pass the data to Tor
     //Get the decrypted data from the last bucket ssl just created this...
-    simple_bucket_read(APR_BRIGADE_LAST(bb), &buf, &nbytes, block );
+    //simple_bucket_read(APR_BRIGADE_LAST(bb), &buf, &nbytes, block );
 
-    if(nbytes >= HUGE_STRING_LEN){
-    	//freak out?
+
+    /*apr_uint32_t read = 0;
+    int res;
+    apr_uint32_t *buf_size;
+
+    if (f->r->remaining < *buf_size) {
+        *buf_size = (apr_size_t)f->r->remaining;
     }
+
+    while (read < *buf_size &&
+           ((res = ap_get_client_block(f->r, buffer + read,
+										   *buf_size - read)) > 0)) {
+        read += res;
+    }
+
+    *buf_size = read;
+    nbytes = *buf_size;
+    if (res < 0) {
+        apr_set_os_error(APR_FROM_OS_ERROR(ERROR_READ_FAULT));
+    }
+
+    rv = res;*/
+
+
+	//ap_getline(buffer, HUGE_STRING_LEN, r, )
 
     //Send the data to tor
 	if (rv == APR_SUCCESS) {
@@ -523,12 +343,12 @@ int tor_io_filter_input(ap_filter_t *f,
  * and authenticates the user if they send the correct password
  */
 
-static int tor_handler(request_rec *r, proxy_worker *worker,
-					   proxy_server_conf *conf,
-					   char *url, const char *proxyname,
-					   apr_port_t proxyport) {
+static int tor_handler(request_rec *r) {
 
   TorConnRec *torconn = myTorConnConfig(r->connection);
+
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+		 "proxy: Tor: STARTING HANDLER");
 
   if (torconn && torconn->isAuthenticated) {
 	 //If the server is already authenticated silently kill requests
@@ -590,7 +410,10 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 	apr_int16_t pollevent;
 
 
-
+	  //testing tor...
+		//nbytes = sizeof("TESTING");
+		//rv = apr_socket_send(torconn->apache2_to_tor_sock, "TESTING", &nbytes);
+		//rv = apr_socket_recv(tor_socket, buffer, &nbytes);
 
 
 	//CHANGE ALL OF THE NULL'S in ap_log_error back to r->server
@@ -627,7 +450,6 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 
 	ap_rwrite(buffer, nbytes, r);
 	ap_rflush(r);
-	//tor_send_response(buffer, 0, nbytes, r);
     //apr_socket_send(client_socket, buffer, &nbytes);
 
 	nbytes = apr_snprintf(buffer, sizeof(buffer),
@@ -635,7 +457,6 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 	ap_xlate_proto_to_ascii(buffer, nbytes);
 	ap_rwrite(buffer, nbytes, r);
 	ap_rflush(r);
-	//tor_send_response(buffer, 0, nbytes, r);
     //apr_socket_send(client_socket, buffer, &nbytes);
 
 	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
@@ -648,6 +469,8 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 	 */
 
 	/*    r->sent_bodyct = 1;*/
+
+	ap_setup_client_block(r, REQUEST_CHUNKED_DECHUNK);
 
 	if ((rv = apr_pollset_create(&pollset, 2, r->pool, 0)) != APR_SUCCESS) {
 		apr_socket_close(tor_socket);
@@ -679,8 +502,8 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 			ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "proxy: Tor: error apr_poll()");
 			return HTTP_INTERNAL_SERVER_ERROR;
 		}
-		ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-					 "proxy: Tor: woke from select(), i=%d", pollcnt);
+		//ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+					// "proxy: Tor: woke from select(), i=%d", pollcnt);
 
 		for (pi = 0; pi < pollcnt; pi++) {
 			const apr_pollfd_t *cur = &signalled[pi];
@@ -707,12 +530,42 @@ static int tor_handler(request_rec *r, proxy_worker *worker,
 	 */
 							ap_rwrite(buffer, nbytes, r);
 							ap_rflush(r);
-							//tor_send_response(buffer, o, nbytes, r);
 
 							if (rv != APR_SUCCESS)
 								break;
 							o += nbytes;
 							i -= nbytes;
+						}
+					}
+					else if (cur->desc.s == client_socket) {
+						pollevent = cur->rtnevents;
+						if (pollevent & APR_POLLIN) {
+							ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+										 "proxy: Tor: client was set");
+							nbytes = sizeof(buffer);
+
+							rv = apr_socket_recv(r, buffer, nbytes);
+							if (rv == APR_SUCCESS) {
+								o = 0;
+								i = nbytes;
+								ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+											 "proxy: Tor: read %d from client", i);
+								while(i > 0)
+								{
+									nbytes = i;
+									rv = apr_socket_send(apache2_to_tor_sock, buffer + o, &nbytes);
+									if (rv != APR_SUCCESS)
+										break;
+									o += nbytes;
+									i -= nbytes;
+								}
+							}
+							else
+								break;
+						}
+						else if ((pollevent & APR_POLLERR) || (pollevent & APR_POLLHUP)) {
+							rv = APR_EOF;
+							break;
 						}
 					}
 					else
@@ -881,7 +734,7 @@ static void tor_hooks(apr_pool_t *pool) {
   ap_hook_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
 
   //SSL happens at +5 so we want to happen at +6
-  ap_register_input_filter  (tor_io_filter, tor_io_filter_input,  NULL, AP_FTYPE_CONNECTION + 6);
+  //ap_register_input_filter  (tor_io_filter, tor_io_filter_input,  NULL, AP_FTYPE_CONNECTION + 6);
 
   /* hook tor_handler in to apache2 PROXY VERSION */
   //proxy_hook_scheme_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
