@@ -24,6 +24,8 @@
 
 static const char tor_io_filter[] = "Tor Filter";
 
+/* used for reading input blocks */
+#define READ_BLOCKSIZE 2048
 
 /*
  * This module
@@ -244,7 +246,7 @@ static int tor_hook_pre_connection(conn_rec *c, void *csd)
 /*
  * right after SSL filter
  */
-int tor_io_filter_input(ap_filter_t *f,
+/*int tor_io_filter_input(ap_filter_t *f,
 						apr_bucket_brigade *bb,
 						ap_input_mode_t mode,
 						apr_read_type_e block,
@@ -272,7 +274,7 @@ int tor_io_filter_input(ap_filter_t *f,
     //Get the decrypted data from the last bucket ssl just created this...
     //simple_bucket_read(APR_BRIGADE_LAST(bb), &buf, &nbytes, block );
 
-
+*/
     /*apr_uint32_t read = 0;
     int res;
     apr_uint32_t *buf_size;
@@ -295,7 +297,7 @@ int tor_io_filter_input(ap_filter_t *f,
 
     rv = res;*/
 
-
+/*
 	//ap_getline(buffer, HUGE_STRING_LEN, r, )
 
     //Send the data to tor
@@ -304,7 +306,7 @@ int tor_io_filter_input(ap_filter_t *f,
 		i = nbytes;
 		while(i > 0)
 		{
-			nbytes = i;
+			nbytes = i;*/
 	/* This is a comment from mod_proxy_connect
 	* This is just plain wrong.  No module should ever write directly
 	* to the client.  For now, this works, but this is high on my list of
@@ -312,7 +314,7 @@ int tor_io_filter_input(ap_filter_t *f,
 	* if ((nbytes = ap_rwrite(buffer + o, nbytes, r)) < 0)
 	* rbb
 	*/
-			rv = apr_socket_send(torconn->apache2_to_tor_sock, buffer + o, &nbytes);
+/*		rv = apr_socket_send(torconn->apache2_to_tor_sock, buffer + o, &nbytes);
 
 			if (rv != APR_SUCCESS)
 				break;
@@ -327,6 +329,99 @@ int tor_io_filter_input(ap_filter_t *f,
 	f->r->input_filters = NULL;
 	f->r->output_filters = NULL;
     return OK;
+}
+*/
+
+
+typedef struct {
+    apr_bucket_brigade *bb;
+} tor_read_filter_ctx;
+
+/**
+ * Copied from protocol.c and changed from buffer_output to buffer_input
+ */
+static apr_status_t tor_buffer_input(request_rec *r,
+                                  char *str, apr_size_t *len)
+{
+
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+		 "proxy: Tor: buffer input starting");
+	conn_rec *c = r->connection;
+	ap_filter_t *f = r->input_filters;
+	tor_read_filter_ctx *ctx;
+	apr_bucket_brigade *bb = apr_brigade_create(r->pool, c->bucket_alloc);
+	apr_status_t err, rv;
+
+
+	if (len == 0)
+		return APR_SUCCESS;
+
+	if(f == NULL){
+		//This should never happen. Someone is calling this without TLS in the connection
+		return -1;
+	}
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+				 "proxy: Tor: getting brigade... %s", r->input_filters->frec->name);
+		//Write the bb into the filter stack
+	//apr_bucket_brigade *bb = apr_brigade_create(r->pool, c->bucket_alloc);
+	//apr_bucket *b = apr_bucket_transient_create(str, len, c->bucket_alloc);
+	//APR_BRIGADE_INSERT_TAIL(bb, b);
+	ap_fwrite(f, bb, str, *len);
+	//ap_fflush(f, bb);
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+				 "proxy: Tor: ctx... %s", f->ctx);
+
+	/*ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+			 "proxy: Tor: getting brigade... %s", r->input_filters->frec->name);
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+			 "proxy: Tor: getting brigade... %s", r->input_filters->next->frec->name);
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+			 "proxy: Tor: getting brigade... %s", r->input_filters->next->next->frec->name);
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+			 "proxy: Tor: getting brigade... %s", r->input_filters->next->next->next->frec->name);*/
+	/*ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+		 "proxy: Tor: starting filter stuff");
+
+	f = r->input_filters;
+	apr_bucket_brigade *bb = apr_brigade_create(r->pool, c->bucket_alloc);
+	apr_bucket *b = apr_bucket_transient_create(str, len, c->bucket_alloc);
+	APR_BRIGADE_INSERT_TAIL(bb, b);
+
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+		 "proxy: Tor: before pass brigade");
+	for(f = r->input_filters; f->next!=NULL; f = f->next){
+		ap_get_brigade(r->input_filters, bb, AP_MODE_READBYTES, APR_NONBLOCK_READ);
+	}
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+		 "proxy: Tor: after pass brigade");*/
+
+	//ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+		 //"proxy: Tor: getting brigade...");
+
+	//ap_get_brigade(r->input_filters, bb, AP_MODE_READBYTES, APR_NONBLOCK_READ, READ_BLOCKSIZE);
+
+	//ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+	//	 "proxy: Tor: getting brigade...");
+
+	/* grab the context from our filter */
+	/*ctx = f->ctx;
+
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+		 "proxy: Tor: ctx grabbed");
+	if (ctx->bb == NULL) {
+		ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+			 "proxy: Tor: why is bb null??");
+		ctx->bb = apr_brigade_create(r->pool, c->bucket_alloc);
+	}*/
+
+
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+		 "proxy: Tor: before writing %s", str);
+	apr_bucket *e = APR_BRIGADE_FIRST(bb);
+	rv = apr_bucket_read(e, str, &len, APR_BLOCK_READ);
+	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
+			 "proxy: Tor: after writing %s", str);
+	return ap_fwrite(f->next, bb, str, len);
 }
 
 
@@ -410,10 +505,35 @@ static int tor_handler(request_rec *r) {
 	apr_int16_t pollevent;
 
 
-	  //testing tor...
-		//nbytes = sizeof("TESTING");
-		//rv = apr_socket_send(torconn->apache2_to_tor_sock, "TESTING", &nbytes);
-		//rv = apr_socket_recv(tor_socket, buffer, &nbytes);
+	ap_filter_t *f;
+		//Clear the input filters except for the ssl filter
+	for(f = r->input_filters;
+			f != NULL;
+			f = f->next){
+		if(strncmp(f->frec->name, "ssl/tls filter", sizeof("ssl/tls filter")) == 0){
+			break;
+		}
+		//This finds the TLS input filter
+	}
+	if(f == NULL){
+		//For some reason SSL was not on the input filter stack... failure.
+		return DECLINED;
+	}else{
+		r->input_filters = f;
+		f->next = NULL;
+	}
+
+		//Clear the output filters except for the ssl filter
+	/*for(f = r->output_filters;
+		f != NULL
+		&& strncmp(f->frec, "ssl/tls filter", sizeof("ssl/tls filter")) != 0;
+		f = f->next){
+		//This finds the TLS input filter
+	}
+	if(f == NULL){
+		//For some reason SSL was not on the input filter stack... failure.
+		return DECLINED;
+	}*/
 
 
 	//CHANGE ALL OF THE NULL'S in ap_log_error back to r->server
@@ -470,7 +590,6 @@ static int tor_handler(request_rec *r) {
 
 	/*    r->sent_bodyct = 1;*/
 
-	ap_setup_client_block(r, REQUEST_CHUNKED_DECHUNK);
 
 	if ((rv = apr_pollset_create(&pollset, 2, r->pool, 0)) != APR_SUCCESS) {
 		apr_socket_close(tor_socket);
@@ -483,9 +602,9 @@ static int tor_handler(request_rec *r) {
 	pollfd.p = r->pool;
 	pollfd.desc_type = APR_POLL_SOCKET;
 	pollfd.reqevents = APR_POLLIN;
-	//pollfd.desc.s = client_socket;
+	pollfd.desc.s = client_socket;
 	pollfd.client_data = NULL;
-	//apr_pollset_add(pollset, &pollfd);
+	apr_pollset_add(pollset, &pollfd);
 
 	/* Add the server side to the poll */
 	pollfd.desc.s = tor_socket;//sock;
@@ -502,8 +621,8 @@ static int tor_handler(request_rec *r) {
 			ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "proxy: Tor: error apr_poll()");
 			return HTTP_INTERNAL_SERVER_ERROR;
 		}
-		//ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-					// "proxy: Tor: woke from select(), i=%d", pollcnt);
+		ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+					 "proxy: Tor: woke from select(), i=%d", pollcnt);
 
 		for (pi = 0; pi < pollcnt; pi++) {
 			const apr_pollfd_t *cur = &signalled[pi];
@@ -521,8 +640,7 @@ static int tor_handler(request_rec *r) {
 						while(i > 0)
 						{
 							nbytes = i;
-	/* This is a comment from mod_proxy_connect
-	 * This is just plain wrong.  No module should ever write directly
+	/* This is just plain wrong.  No module should ever write directly
 	 * to the client.  For now, this works, but this is high on my list of
 	 * things to fix.  The correct line is:
 	 * if ((nbytes = ap_rwrite(buffer + o, nbytes, r)) < 0)
@@ -530,42 +648,10 @@ static int tor_handler(request_rec *r) {
 	 */
 							ap_rwrite(buffer, nbytes, r);
 							ap_rflush(r);
-
 							if (rv != APR_SUCCESS)
 								break;
 							o += nbytes;
 							i -= nbytes;
-						}
-					}
-					else if (cur->desc.s == client_socket) {
-						pollevent = cur->rtnevents;
-						if (pollevent & APR_POLLIN) {
-							ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-										 "proxy: Tor: client was set");
-							nbytes = sizeof(buffer);
-
-							rv = apr_socket_recv(r, buffer, nbytes);
-							if (rv == APR_SUCCESS) {
-								o = 0;
-								i = nbytes;
-								ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-											 "proxy: Tor: read %d from client", i);
-								while(i > 0)
-								{
-									nbytes = i;
-									rv = apr_socket_send(apache2_to_tor_sock, buffer + o, &nbytes);
-									if (rv != APR_SUCCESS)
-										break;
-									o += nbytes;
-									i -= nbytes;
-								}
-							}
-							else
-								break;
-						}
-						else if ((pollevent & APR_POLLERR) || (pollevent & APR_POLLHUP)) {
-							rv = APR_EOF;
-							break;
 						}
 					}
 					else
@@ -574,6 +660,48 @@ static int tor_handler(request_rec *r) {
 				else if ((pollevent & APR_POLLERR) || (pollevent & APR_POLLHUP))
 					break;
 			}
+			else if (cur->desc.s == client_socket) {
+				pollevent = cur->rtnevents;
+				if (pollevent & APR_POLLIN) {
+					ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+								 "proxy: Tor: client was set");
+					nbytes = sizeof(buffer);
+
+
+					rv = apr_socket_recv(client_socket, buffer, &nbytes);
+
+					tor_buffer_input(r, buffer, &nbytes);
+
+					/*buffer[0] = 't';
+					buffer[1] = 'e';
+					buffer[2] = 's';
+					buffer[3] = 't';
+					buffer[4] = 0;
+					nbytes = 4;*/
+
+					if (rv == APR_SUCCESS) {
+						o = 0;
+						i = nbytes;
+						ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+									 "proxy: Tor: read %d from client", i);
+						while(i > 0)
+						{
+							nbytes = i;
+							rv = apr_socket_send(tor_socket, buffer + o, &nbytes);
+							if (rv != APR_SUCCESS)
+								break;
+							o += nbytes;
+							i -= nbytes;
+						}
+					}
+					else
+						break;
+				}
+				else if ((pollevent & APR_POLLERR) || (pollevent & APR_POLLHUP)) {
+					rv = APR_EOF;
+					break;
+				}
+			}
 			else
 				break;
 		}
@@ -581,6 +709,7 @@ static int tor_handler(request_rec *r) {
 			break;
 		}
 	}
+
 
 	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
 		 "proxy: Tor: finished with poll() - cleaning up");
