@@ -50,10 +50,10 @@ Shane Pope
 2.3 Required features of the Apache module
 
     - Authenticate the user if the correct password is sent, otherwise let Apache
-      handle the request. (DONE)
-    - Create a socket to local Tor bridge (DONE - Socket per connection)
-    - Pass all bits from authenticated client connection to Tor (Done - Works HTTP not HTTPS)
-    - Pass all bits from local Tor back to authenticated client (Done - Works HTTP not HTTPS)
+      handle the request.
+    - Create a socket to local Tor bridge
+    - Pass all bits from authenticated client connection to Tor
+    - Pass all bits from local Tor back to authenticated client
 
 2.4 Required Changes to Tor Server
 
