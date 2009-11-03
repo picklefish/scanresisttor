@@ -40,7 +40,7 @@ Shane Pope
 2.2 Required Changes to Tor Client
 
     - Client needs a flag when given a bridge to know to treat the bridge as normal
-      or scanning resistant (Easy)
+      or scanning resistant
     - Client must use a web browser-identical TLS handshake.
     - After creating the TLS connection the client must send the bridge-specific
       password.
@@ -57,7 +57,7 @@ Shane Pope
 
 2.4 Required Changes to Tor Server
 
-    - Add directives to know if the server is a scanning resistant bridge or not. (Easy)
+    - Add directives to know if the server is a scanning resistant bridge or not.
     - Rewrite connection code to accept unencrypted OR connections (Eek)
     - More?
 
