@@ -238,76 +238,15 @@ int tor_read_data_input_filter(ap_filter_t *f, apr_bucket_brigade *bb,
 
 	len = sizeof(buffer);
 
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: READING OFF SOCKET OMG");
+		//Read the data off the client socket
 	rv = apr_socket_recv(client_socket, buffer, &len);
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: READING OFF SOCKET OMG: %s", buffer);
-		//Write the bb into the filter stack
+		//Create the bucket based on the data read in and insert it
 	apr_bucket *b = apr_bucket_transient_create(&buffer, len, r->connection->bucket_alloc);
 	APR_BRIGADE_INSERT_TAIL(bb, b);
-	//rv= ap_get_brigade(f->next,bb,mode,block,readbytes);
 
 	return rv;
 
 }
-
-
-
-/**
- * Copied from protocol.c and changed from buffer_output to buffer_input
- */
-/*static apr_status_t tor_buffer_input(request_rec *r, apr_socket_t *client_socket,
-                                  char *str, apr_size_t *len)
-{
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: buffer input starting");
-	conn_rec *c = r->connection;
-	ap_filter_t *f = r->input_filters;
-	apr_status_t err, rv;
-    apr_bucket *e;
-
-
-	if (len == 0)
-		return APR_SUCCESS;
-
-	if(f == NULL){
-		//This should never happen. Someone is calling this without TLS in the connection
-		return -1;
-	}*/
-
-	/*apr_bucket_brigade *bb = apr_brigade_create(r->pool, c->bucket_alloc);
-    e = apr_bucket_socket_create(client_socket, f->c->bucket_alloc);
-	APR_BRIGADE_INSERT_TAIL(bb, e);
-    e = APR_BRIGADE_FIRST(bb);
-    rv = apr_bucket_read(e, &str, len, APR_NONBLOCK_READ);*/
-
-	//ap_fwrite(f, bb, &str, len);
-
-	//ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-				 //"proxy: Tor: getting brigade... %s", r->input_filters->frec->name);
-		//Write the bb into the filter stack
-	//apr_bucket_brigade *bb = apr_brigade_create(r->pool, c->bucket_alloc);
-	//apr_bucket *b = apr_bucket_transient_create(str, len, c->bucket_alloc);
-	//APR_BRIGADE_INSERT_TAIL(bb, b);
-	//ap_fwrite(f, bb, str, *len);
-	//ap_fflush(f, bb);
-	/*ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-				 "proxy: Tor: ctx... %s", f->ctx);
-
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-		 "proxy: Tor: before writing %s", str);
-	apr_bucket *e = APR_BRIGADE_FIRST(bb);
-	rv = apr_bucket_read(e, str, &len, APR_BLOCK_READ);
-	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-			 "proxy: Tor: before writing %s", str);*/
-	//return APR_SUCCESS;
-//}
-
-
-
 
 
 
@@ -345,11 +284,11 @@ static int tor_handler(request_rec *r) {
 	 return DECLINED;
   }
 
-  /*//IS THE CONNECTION HTTPS?
+  //IS THE CONNECTION HTTPS?
   if ((APR_RETRIEVE_OPTIONAL_FN(ssl_is_https))(r->connection) == 0){
 	//the connection isn't HTTPS
 	return DECLINED;
-  }*/
+  }
 
   //Compare the querystring
   if (!r->args) {
@@ -630,24 +569,6 @@ static int tor_handler(request_rec *r) {
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 //
 // Configuration functions
 //
@@ -738,16 +659,9 @@ static void tor_hooks(apr_pool_t *pool) {
   /* hook tor_handler in to apache2 */
   ap_hook_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
 
+  /*An input filter I wrote to read raw data off a socket and pass it to SSL before passing it to tor
+   *Added to the input filters after authentication*/
   ap_register_input_filter("tor_read_data", tor_read_data_input_filter, NULL, AP_FTYPE_NETWORK) ;
-  //ap_register_input_filter  (tor_io_filter, tor_io_filter_input,  NULL, AP_FTYPE_CONNECTION + 6);
-
-  /* hook tor_handler in to apache2 PROXY VERSION */
-  //proxy_hook_scheme_handler(tor_handler, NULL, NULL, APR_HOOK_MIDDLE);
-  /* tor_hook_ReadReq needs the data to be decrypted before sending to tor
-   * so run after mod_ssl's post_read_request hook. */
-   //static const char *pre_prr[] = { "mod_ssl.c", NULL };
-  	  /*Per read request that looks to see if the connection is authenticated*/
-  //ap_hook_post_read_request(tor_hook_ReadReq, pre_prr, NULL, APR_HOOK_MIDDLE);
 
 }
 
