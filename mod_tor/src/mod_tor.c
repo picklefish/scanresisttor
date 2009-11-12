@@ -1,13 +1,11 @@
 #include <httpd.h>
 #include <http_protocol.h>
 #include <http_config.h>
-#include <mod_ssl.h>
-#include <mod_proxy.h>
 #include <apr_poll.h>
+#include <mod_ssl.h>
+//Probably remove this later, the only thing using it are some logging constants
+#include <mod_proxy.h>
 
-//#include "ssl_private.h"
-//#include "apr_buckets_simple.c"
-//#include "http_request.c"
 
 /*
  * The default value for config directives
@@ -17,7 +15,7 @@
 #endif
 
 #ifndef DEFAULT_MODTOR_PORT
-#define DEFAULT_MODTOR_PORT 44114//12312//443
+#define DEFAULT_MODTOR_PORT 12312//44114//12312//443
 #endif
 
 
@@ -304,7 +302,12 @@ static int tor_handler(request_rec *r) {
 
 	if(torconn){
 		torconn->isAuthenticated = 1;
-		tor_init_connection_tor_socket(r->connection,torconn);
+		if(tor_init_connection_tor_socket(r->connection,torconn) != APR_SUCCESS){
+			ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+					  "proxy: Tor: Cannot connect to socket to Tor process...");
+			return DECLINED; //Possibly return an error since this means Tor isn't
+							 //accepting sockets
+		}
 	}
 	else{
 		return DECLINED;
@@ -395,6 +398,12 @@ static int tor_handler(request_rec *r) {
 	ap_rwrite(buffer, nbytes, r);
 	ap_rflush(r);
 
+	nbytes = apr_snprintf(buffer, sizeof(buffer),
+			"Proxy-agent: Tor" CRLF CRLF);
+	ap_xlate_proto_to_ascii(buffer, nbytes);
+	ap_rwrite(buffer, nbytes, r);
+	ap_rflush(r);
+
 	/*
 	 * Step Four: Handle Data Transfer
 	 *
@@ -461,16 +470,17 @@ static int tor_handler(request_rec *r) {
 	 * if ((nbytes = ap_rwrite(buffer + o, nbytes, r)) < 0)
 	 * rbb
 	 */
-							ap_rwrite(buffer, nbytes, r);
+							ap_rwrite(buffer + o, nbytes, r);
 							ap_rflush(r);
-							if (rv != APR_SUCCESS)
-								break;
 							o += nbytes;
 							i -= nbytes;
 						}
 					}
-					else
+					else{
+						ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+									 "proxy: Tor: ERROR RECV FROM TOR_SOCKET", i);
 						break;
+					}
 				}
 				else if ((pollevent & APR_POLLERR) || (pollevent & APR_POLLHUP))
 					break;
@@ -507,10 +517,15 @@ static int tor_handler(request_rec *r) {
 							i -= nbytes;
 						}
 					}
-					else
+					else{
+						ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+									 "proxy: Tor: omg socket doesn't exist?", i);
 						break;
+					}
 				}
 				else if ((pollevent & APR_POLLERR) || (pollevent & APR_POLLHUP)) {
+					ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
+								 "proxy: Tor: omg eof?", i);
 					rv = APR_EOF;
 					break;
 				}
@@ -533,6 +548,9 @@ static int tor_handler(request_rec *r) {
 	 */
 	r->output_filters = NULL;
 	r->connection->output_filters = NULL;
+
+		//Close the connection to the client
+	close(c);//Not sure if this actually closes the client or not... -shane
 
   /* we return OK to indicate that we have successfully processed
    * the request.  No further processing is required.
@@ -597,7 +615,7 @@ static const char *set_modtor_port(cmd_parms *parms, void *mconfig, const char *
 	modtor_config *s_cfg = ap_get_module_config(parms->server->module_config, &tor_module);
 
 	// make a duplicate of the argument's value using the command parameters pool.
-	s_cfg->mod_tor_port = (apr_port_t) arg;
+	s_cfg->mod_tor_port = (apr_port_t) atoi(arg);
 
 	// success
 	return NULL;
