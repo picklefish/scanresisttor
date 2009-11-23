@@ -75,16 +75,20 @@ static modtor_config *s_cfg = NULL;
 static apr_status_t close_tor_socket(void *sock_to_close)
 {
 	apr_socket_t * sock = (apr_socket_t*) sock_to_close;
+#if DEBUGGING
 	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-	"mod_tor: Closing Tor Socket");
+				"mod_tor: Closing Tor Socket");
 	fflush(stderr);
+#endif
 
 	if(sock){
 		apr_socket_close(sock);
 	}
-
+#if DEBUGGING
 	ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, NULL,
-	"mod_tor: Closed Tor Socket");
+				"mod_tor: Closed Tor Socket");
+#endif
+
     return APR_SUCCESS;
 }
 
@@ -159,16 +163,7 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
                         return -1;//replace with actual err# later
                 }
 
-                /*//Set up socket options if we need to...
-
-                if ((rv = apr_socket_timeout_set(apache2_to_tor_sock, 30)) != APR_SUCCESS) {
-                  apr_socket_close(sock);
-                  return OK;
-                }
-                rv = apr_socket_opt_set(apache2_to_tor_sock, APR_SO_RCVBUF, 256);
-                rv = apr_socket_opt_set(apache2_to_tor_sock, APR_TCP_NODELAY, 1);
-                rv = apr_socket_opt_set(apache2_to_tor_sock, APR_SO_NONBLOCK, 1);
-                */
+                //Set up socket options if we need to...
 
                 rv = apr_socket_opt_set(torconn->apache2_to_tor_sock, APR_SO_KEEPALIVE, 1);
                 if ( rv != APR_SUCCESS) {
@@ -178,11 +173,7 @@ static int tor_init_connection_tor_socket(conn_rec *c, TorConnRec *torconn){
                   return -1;//replace with actual err# later
                 }
 
-                ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
-                                "mod_tor: Before Connect %d", (int)s_cfg->mod_tor_port);
                 rv = apr_socket_connect(torconn->apache2_to_tor_sock, localsa);
-                ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
-                                "mod_tor: After Connect %d", (int)s_cfg->mod_tor_port);
 
                 if ( rv != APR_SUCCESS) {
                         ap_log_error(APLOG_MARK, APLOG_STARTUP, 0, c->base_server,
@@ -345,10 +336,12 @@ static int tor_handler(request_rec *r) {
 		}
 	}
 
+#ifdef DEBUGGING
 	for(f = r->input_filters; f != NULL; f = f->next){
-		ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-				  "proxy: Tor: INPUT FILTERS0 %s", f->frec->name);
+		ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+				  "proxy: Tor: Input_filters before %s", f->frec->name);
 	}
+#endif
 		//Create the tor input filter and switch it with the ssl one so it's
 		//the lowest on the stack
 	f = ap_add_input_filter("tor_read_data", NULL, r, c);
@@ -357,11 +350,12 @@ static int tor_handler(request_rec *r) {
 	f->next = NULL;
 	f->frec->next = NULL;
 
-
+#ifdef DEBUGGING
 	for(f = r->input_filters; f != NULL; f = f->next){
-		ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-				  "proxy: Tor: INPUT FILTERS2 %s", f->frec->name);
+		ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+				  "proxy: Tor: Input_filters after %s", f->frec->name);
 	}
+#endif
 
 
 
@@ -382,10 +376,6 @@ static int tor_handler(request_rec *r) {
 	else{
 		r->output_filters = f;
 	}
-
-
-	//CHANGE ALL OF THE NULL'S in ap_log_error back to r->server
-	//and APLOG_STARTUP to APLOG_DEBUG
 
 
 	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
@@ -411,9 +401,8 @@ static int tor_handler(request_rec *r) {
 	 */
 
 	/*    r->sent_bodyct = 1;*/
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-		 "proxy: TOR: setting up poll()");
+	ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+			"proxy: TOR: setting up poll()");
 
 	if ((rv = apr_pollset_create(&pollset, 2, r->pool, 0)) != APR_SUCCESS) {
 		apr_socket_close(tor_socket);
@@ -434,9 +423,10 @@ static int tor_handler(request_rec *r) {
 	pollfd.desc.s = tor_socket;//sock;
 	apr_pollset_add(pollset, &pollfd);
 
-
-	ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-		 "proxy: TOR: finished setting up poll stuffs about to start while loop");
+#ifdef DEBUGGING
+        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+        		"proxy: TOR: finished setting up poll stuffs about to start while loop");
+#endif
 
 
 	while (1) { /* Infinite loop until error (one side closes the connection) */
@@ -445,8 +435,10 @@ static int tor_handler(request_rec *r) {
 			ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r, "proxy: Tor: error apr_poll()");
 			return HTTP_INTERNAL_SERVER_ERROR;
 		}
-		ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-					 "proxy: Tor: woke from select(), i=%d", pollcnt);
+#ifdef DEBUGGING
+        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+                     "proxy: CONNECT: woke from select(), i=%d", pollcnt);
+#endif
 
 		for (pi = 0; pi < pollcnt; pi++) {
 			const apr_pollfd_t *cur = &signalled[pi];
@@ -454,8 +446,10 @@ static int tor_handler(request_rec *r) {
 			if (cur->desc.s == tor_socket) {
 				pollevent = cur->rtnevents;
 				if (pollevent & APR_POLLIN) {
-					ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-								 "proxy: TOR: sock was set");
+#ifdef DEBUGGING
+                    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+                                 "proxy: CONNECT: sock was set");
+#endif
 					nbytes = sizeof(buffer);
 					rv = apr_socket_recv(tor_socket, buffer, &nbytes);
 					if (rv == APR_SUCCESS) {
@@ -488,8 +482,10 @@ static int tor_handler(request_rec *r) {
 			else if (cur->desc.s == client_socket) {
 				pollevent = cur->rtnevents;
 				if (pollevent & APR_POLLIN) {
-					ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-								 "proxy: Tor: client was set");
+#ifdef DEBUGGING
+                    ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+                                 "proxy: CONNECT: client was set");
+#endif
 					nbytes = sizeof(buffer);
 					char *str;
 
@@ -505,8 +501,10 @@ static int tor_handler(request_rec *r) {
 					if (rv == APR_SUCCESS) {
 						o = 0;
 						i = nbytes;
-						ap_log_error(APLOG_MARK, APLOG_STARTUP/*APLOG_DEBUG*/, 0, NULL,
-									 "proxy: Tor: read %d from client", i);
+#ifdef DEBUGGING
+                        ap_log_error(APLOG_MARK, APLOG_DEBUG, 0, r->server,
+                                     "proxy: CONNECT: read %d from client", i);
+#endif
 						while(i > 0)
 						{
 							nbytes = i;
