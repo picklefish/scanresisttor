@@ -1,0 +1,1 @@
+This project aims to allow people to connect to a Tor bridge through an apache web server on the same server as the bridge. Hiding the bridge, unless you know the password. I don't know anything about licenses, since this is an apache module I put it under Apache License 2.0.
